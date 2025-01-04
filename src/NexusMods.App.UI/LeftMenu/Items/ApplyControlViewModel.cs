@@ -108,6 +108,7 @@ public class ApplyControlViewModel : AViewModel<IApplyControlViewModel>, IApplyC
 
     private async Task Apply()
     {
+        Console.WriteLine("Hello World");
         try
         {
             await Task.Run(async () =>
