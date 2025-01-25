@@ -12,13 +12,16 @@ using R3;
 
 namespace NexusMods.App.UI.Pages.LibraryPage;
 
+[Obsolete("Use CompositeItemModel instead")]
 public interface ILibraryItemModel : ITreeDataGridItemModel<ILibraryItemModel, EntityId>;
 
+[Obsolete("Use CompositeItemModel instead")]
 public interface IHasTicker
 {
     Observable<DateTimeOffset>? Ticker { get; set; }
 }
 
+[Obsolete("Use CompositeItemModel instead")]
 public interface IHasLinkedLoadoutItems
 {
     IObservable<IChangeSet<LibraryLinkedLoadoutItem.ReadOnly, EntityId>> LinkedLoadoutItemsObservable { get; }
@@ -39,23 +42,30 @@ public interface IHasLinkedLoadoutItems
 
         if (serialDisposable.Disposable is null)
         {
-            serialDisposable.Disposable = self.LinkedLoadoutItemsObservable.OnUI().SubscribeWithErrorLogging(changes => self.LinkedLoadoutItems.ApplyChanges(changes));
+            serialDisposable.Disposable = self.LinkedLoadoutItemsObservable.OnUI().SubscribeWithErrorLogging(changes =>
+                {
+                    self.LinkedLoadoutItems.ApplyChanges(changes);
+                }
+            );
         }
 
         return disposable;
     }
 }
 
+[Obsolete("Use CompositeItemModel instead")]
 public interface IIsParentLibraryItemModel : ILibraryItemModel
 {
     IReadOnlyList<LibraryItemId> LibraryItemIds { get; }
 }
 
+[Obsolete("Use CompositeItemModel instead")]
 public interface IIsChildLibraryItemModel : ILibraryItemModel
 {
     LibraryItemId LibraryItemId { get; }
 }
 
+[Obsolete("Use CompositeItemModel instead")]
 [SuppressMessage("ReSharper", "PossibleInterfaceMemberAmbiguity")]
 public interface ILibraryItemWithDates : IHasTicker, ILibraryItemWithDownloadedDate, ILibraryItemWithInstalledDate
 {

@@ -103,7 +103,8 @@ public static class Services
             .AddViewModel<MiniGameWidgetViewModel, IMiniGameWidgetViewModel>()
             .AddViewModel<HomeLeftMenuViewModel, IHomeLeftMenuViewModel>()
             .AddViewModel<IconButtonViewModel, IIconButtonViewModel>()
-            .AddViewModel<IconViewModel, IIconViewModel>()
+            .AddViewModel<LeftMenuItemViewModel, ILeftMenuItemViewModel>()
+            .AddViewModel<CollectionLeftMenuItemViewModel, ILeftMenuItemViewModel>()
             .AddViewModel<ImageButtonViewModel, IImageButtonViewModel>()
             .AddViewModel<LaunchButtonViewModel, ILaunchButtonViewModel>()
             .AddViewModel<ApplyControlViewModel, IApplyControlViewModel>()
@@ -134,10 +135,9 @@ public static class Services
             .AddView<MiniGameWidget, IMiniGameWidgetViewModel>()
             .AddView<HomeLeftMenuView, IHomeLeftMenuViewModel>()
             .AddView<IconButton, IIconButtonViewModel>()
-            .AddView<IconView, IIconViewModel>()
+            .AddView<LeftMenuItemView, ILeftMenuItemViewModel>()
             .AddView<ImageButton, IImageButtonViewModel>()
             .AddView<LaunchButtonView, ILaunchButtonViewModel>()
-            .AddView<LeftMenuView, ILeftMenuViewModel>()
             .AddView<MetricsOptInView, IMetricsOptInViewModel>()
             .AddView<MyGamesView, IMyGamesViewModel>()
             .AddView<NexusLoginOverlayView, INexusLoginOverlayViewModel>()
@@ -204,7 +204,6 @@ public static class Services
             .AddViewModel<ItemContentsFileTreeViewModel, IItemContentsFileTreeViewModel>()
 
             .AddView<LibraryView, ILibraryViewModel>()
-            .AddView<CollectionsView, ICollectionsViewModel>()
             .AddView<LoadoutView, ILoadoutViewModel>()
 
             .AddView<CollectionDownloadView, ICollectionDownloadViewModel>()
@@ -215,6 +214,12 @@ public static class Services
             
             .AddView<LoadOrdersWIPPageView,ILoadOrdersWIPPageViewModel>()
             .AddViewModel<LoadOrdersWipPageViewModel, ILoadOrdersWIPPageViewModel>()
+
+            .AddView<UpgradeToPremiumView, IUpgradeToPremiumViewModel>()
+            .AddViewModel<UpgradeToPremiumViewModel, IUpgradeToPremiumViewModel>()
+
+            .AddView<CollectionLoadoutView, ICollectionLoadoutViewModel>()
+            .AddViewModel<CollectionLoadoutViewModel, ICollectionLoadoutViewModel>()
 
             // workspace system
             .AddSingleton<IWindowManager, WindowManager>()
@@ -247,9 +252,9 @@ public static class Services
             .AddSingleton<IPageFactory, ItemContentsFileTreePageFactory>()
             .AddSingleton<IPageFactory, LibraryPageFactory>()
             .AddSingleton<IPageFactory, LoadoutPageFactory>()
-            .AddSingleton<IPageFactory, CollectionsPageFactory>()
             .AddSingleton<IPageFactory, CollectionDownloadPageFactory>()
             .AddSingleton<IPageFactory, LoadOrdersWIPPageFactory>()
+            .AddSingleton<IPageFactory, CollectionLoadoutPageFactory>()
 
             // LeftMenu factories
             .AddSingleton<ILeftMenuFactory, HomeLeftMenuFactory>()

@@ -1,3 +1,4 @@
+using Avalonia.Media.Imaging;
 using DynamicData;
 using NexusMods.Abstractions.Library.Models;
 using NexusMods.Abstractions.Loadouts;
@@ -11,15 +12,16 @@ using R3;
 
 namespace NexusMods.App.UI.Pages.LibraryPage;
 
+[Obsolete("Use CompositeItemModel instead")]
 public class LocalFileParentLibraryItemModel : TreeDataGridItemModel<ILibraryItemModel, EntityId>,
-    ILibraryItemWithName,
+    ILibraryItemWithThumbnailAndName,
     ILibraryItemWithSize,
     ILibraryItemWithDates,
     ILibraryItemWithInstallAction,
     IHasLinkedLoadoutItems,
     IIsParentLibraryItemModel
 {
-    public LocalFileParentLibraryItemModel(LocalFile.ReadOnly localFile)
+    public LocalFileParentLibraryItemModel(LocalFile.ReadOnly localFile, IServiceProvider serviceProvider)
     {
         LibraryItemIds = [localFile.Id];
 
@@ -28,6 +30,12 @@ public class LocalFileParentLibraryItemModel : TreeDataGridItemModel<ILibraryIte
         FormattedInstalledDate = InstalledDate.ToFormattedProperty();
         InstallItemCommand = ILibraryItemWithInstallAction.CreateCommand(this);
 
+        // Note: Because this is a local file, this always hits the fallback thumbnail in practice.
+        var modPageThumbnailPipeline = ImagePipelines.GetModPageThumbnailPipeline(serviceProvider);
+        var imageDisposable = ImagePipelines.CreateObservable(localFile.Id, modPageThumbnailPipeline)
+            .ObserveOnUIThreadDispatcher()
+            .Subscribe(this, static (bitmap, self) => self.Thumbnail.Value = bitmap);
+        
         // ReSharper disable once NotDisposedResource
         var datesDisposable = ILibraryItemWithDates.SetupDates(this);
 
@@ -65,7 +73,8 @@ public class LocalFileParentLibraryItemModel : TreeDataGridItemModel<ILibraryIte
             FormattedInstalledDate,
             InstallItemCommand,
             IsInstalled,
-            InstallButtonText
+            InstallButtonText,
+            imageDisposable
         );
     }
 
@@ -75,8 +84,10 @@ public class LocalFileParentLibraryItemModel : TreeDataGridItemModel<ILibraryIte
 
     public required IObservable<IChangeSet<LibraryLinkedLoadoutItem.ReadOnly, EntityId>> LinkedLoadoutItemsObservable { get; init; }
     public ObservableDictionary<EntityId, LibraryLinkedLoadoutItem.ReadOnly> LinkedLoadoutItems { get; private set; } = [];
-
+    
+    public BindableReactiveProperty<Bitmap> Thumbnail { get; } = new();
     public BindableReactiveProperty<string> Name { get; } = new(value: "-");
+    public BindableReactiveProperty<bool> ShowThumbnail { get; } = new(value: true);
 
     public ReactiveProperty<Size> ItemSize { get; } = new();
     public BindableReactiveProperty<string> FormattedSize { get; }

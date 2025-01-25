@@ -1,4 +1,7 @@
+using System.ComponentModel;
 using System.Diagnostics;
+using System.Reactive.Linq;
+using Avalonia.Controls;
 using Avalonia.Controls.Models.TreeDataGrid;
 using DynamicData;
 using DynamicData.Kernel;
@@ -9,7 +12,6 @@ using NexusMods.Abstractions.UI.Extensions;
 using NexusMods.App.UI.Controls;
 using NexusMods.App.UI.Controls.Navigation;
 using NexusMods.App.UI.Controls.Trees;
-using NexusMods.App.UI.Extensions;
 using NexusMods.App.UI.Pages.ItemContentsFileTree;
 using NexusMods.App.UI.Pages.LibraryPage;
 using NexusMods.App.UI.Resources;
@@ -22,55 +24,55 @@ using NexusMods.MnemonicDB.Abstractions.TxFunctions;
 using ObservableCollections;
 using R3;
 using ReactiveUI;
+using ReactiveUI.Fody.Helpers;
 
 namespace NexusMods.App.UI.Pages.LoadoutPage;
 
 public class LoadoutViewModel : APageViewModel<ILoadoutViewModel>, ILoadoutViewModel
 {
-    private readonly IConnection _connection;
-
     public ReactiveCommand<Unit> SwitchViewCommand { get; }
     public string EmptyStateTitleText { get; }
     public ReactiveCommand<NavigationInformation> ViewFilesCommand { get; }
     public ReactiveCommand<NavigationInformation> ViewLibraryCommand { get; }
     public ReactiveCommand<Unit> RemoveItemCommand { get; }
+    public ReactiveCommand<Unit> CollectionToggleCommand { get; }
 
     public LoadoutTreeDataGridAdapter Adapter { get; }
+    
+    [Reactive] public bool IsCollection { get; private set; } 
+    [Reactive] public bool IsCollectionEnabled { get; private set; }
 
     public LoadoutViewModel(IWindowManager windowManager, IServiceProvider serviceProvider, LoadoutId loadoutId, Optional<LoadoutItemGroupId> collectionGroupId = default) : base(windowManager)
     {
-        var ticker = Observable
-            .Interval(period: TimeSpan.FromSeconds(30), timeProvider: ObservableSystem.DefaultTimeProvider)
-            .ObserveOnUIThreadDispatcher()
-            .Select(_ => DateTime.Now)
-            .Publish(initialValue: DateTime.Now);
-
         var loadoutFilter = new LoadoutFilter
         {
             LoadoutId = loadoutId,
             CollectionGroupId = collectionGroupId,
         };
 
-        Adapter = new LoadoutTreeDataGridAdapter(serviceProvider, ticker, loadoutFilter);
-        
-        _connection = serviceProvider.GetRequiredService<IConnection>();
+        Adapter = new LoadoutTreeDataGridAdapter(serviceProvider, loadoutFilter);
 
+        var connection = serviceProvider.GetRequiredService<IConnection>();
 
         if (collectionGroupId.HasValue)
         {
-            var collectionGroup = LoadoutItem.Load(_connection.Db, collectionGroupId.Value);
+            var collectionGroup = LoadoutItem.Load(connection.Db, collectionGroupId.Value);
             TabTitle = collectionGroup.Name;
-            TabIcon = IconValues.Collections;
+            TabIcon = IconValues.CollectionsOutline;
+            IsCollection = true;
+            CollectionToggleCommand = new ReactiveCommand<Unit>(
+                async (_, _) => await ToggleCollectionGroup(collectionGroupId, !IsCollectionEnabled, connection), 
+                configureAwait: false
+            );
         }
         else
         {
             TabTitle = Language.LoadoutViewPageTitle;
-            TabIcon = IconValues.Mods;
+            TabIcon = IconValues.FormatAlignJustify;
+            CollectionToggleCommand = new ReactiveCommand<Unit>(_ => { });
         }
 
-
         SwitchViewCommand = new ReactiveCommand<Unit>(_ => { Adapter.ViewHierarchical.Value = !Adapter.ViewHierarchical.Value; });
-        ticker.Connect();
 
         var hasSelection = Adapter.SelectedModels
             .ObserveCountChanged()
@@ -78,7 +80,7 @@ public class LoadoutViewModel : APageViewModel<ILoadoutViewModel>, ILoadoutViewM
 
         var viewModFilesArgumentsSubject = new BehaviorSubject<Optional<LoadoutItemGroup.ReadOnly>>(Optional<LoadoutItemGroup.ReadOnly>.None); 
         
-        var loadout = Loadout.Load(_connection.Db, loadoutId);
+        var loadout = Loadout.Load(connection.Db, loadoutId);
         EmptyStateTitleText = string.Format(Language.LoadoutGridViewModel_EmptyModlistTitleString, loadout.InstallationInstance.Game.Name);
         ViewLibraryCommand = new ReactiveCommand<NavigationInformation>(info =>
             {
@@ -118,13 +120,14 @@ public class LoadoutViewModel : APageViewModel<ILoadoutViewModel>, ILoadoutViewM
                 false
             );
 
-        RemoveItemCommand = hasSelection.ToReactiveCommand<Unit>(async (_, cancellationToken) =>
+        RemoveItemCommand = hasSelection.ToReactiveCommand<Unit>(async (_, _) =>
             {
                 var ids = Adapter.SelectedModels
-                    .SelectMany(itemModel => itemModel.GetLoadoutItemIds())
+                    .SelectMany(static itemModel => GetLoadoutItemIds(itemModel))
                     .ToHashSet();
 
-                using var tx = _connection.BeginTransaction();
+                if (ids.Count == 0) return;
+                using var tx = connection.BeginTransaction();
 
                 foreach (var id in ids)
                 {
@@ -139,75 +142,95 @@ public class LoadoutViewModel : APageViewModel<ILoadoutViewModel>, ILoadoutViewM
         );
 
         this.WhenActivated(disposables =>
+        {
+            Adapter.Activate().AddTo(disposables);
+
+            Adapter.MessageSubject.SubscribeAwait(async (message, _) =>
             {
-                Adapter.Activate();
-                Disposable.Create(Adapter, static adapter => adapter.Deactivate()).AddTo(disposables);
+                if (message.Ids.Length == 0) return;
+                using var tx = connection.BeginTransaction();
 
-                // TODO: can be optimized with chunking or debounce
-                Adapter.MessageSubject.SubscribeAwait(async (message, cancellationToken) =>
+                foreach (var loadoutItemId in message.Ids)
                 {
-                    using var tx = _connection.BeginTransaction();
-
-                    foreach (var (loadoutItemId, shouldEnable) in message.Ids)
+                    if (message.ShouldEnable)
                     {
-                        if (shouldEnable)
-                        {
-                            tx.Retract(loadoutItemId, LoadoutItem.Disabled, Null.Instance);
-                        } else
-                        {
-                            tx.Add(loadoutItemId, LoadoutItem.Disabled, Null.Instance);
-                        }
+                        tx.Retract(loadoutItemId, LoadoutItem.Disabled, Null.Instance);
                     }
+                    else
+                    {
+                        tx.Add(loadoutItemId, LoadoutItem.Disabled, Null.Instance);
+                    }
+                }
 
-                    await tx.Commit();
-                },
-                awaitOperation: AwaitOperation.Parallel,
-                configureAwait: false).AddTo(disposables);
+                await tx.Commit();
+            }, awaitOperation: AwaitOperation.Parallel, configureAwait: false).AddTo(disposables);
 
-                // Compute the target group for the ViewFilesCommand
-                Adapter.SelectedModels.ObserveCountChanged(notifyCurrentCount: true)
-                    .Select(this, static (count, vm) => count == 1 ? vm.Adapter.SelectedModels.First() : null)
-                    .ObserveOnThreadPool()
-                    .Select(_connection,
-                        static (model, connection) =>
-                        {
-                            if (model is null) return Optional<LoadoutItemGroup.ReadOnly>.None;
-                            return LoadoutItemGroupFileTreeViewModel.GetViewModFilesLoadoutItemGroup(model.GetLoadoutItemIds(), connection);
-                        }
-                    )
-                    .ObserveOnUIThreadDispatcher()
-                    .Subscribe(viewModFilesArgumentsSubject.OnNext)
+            // Compute the target group for the ViewFilesCommand
+            Adapter.SelectedModels.ObserveCountChanged(notifyCurrentCount: true)
+                .Select(this, static (count, vm) => count == 1 ? vm.Adapter.SelectedModels.First() : null)
+                .ObserveOnThreadPool()
+                .Select(connection, static (model, connection) =>
+                {
+                    if (model is null) return Optional<LoadoutItemGroup.ReadOnly>.None;
+                    return LoadoutItemGroupFileTreeViewModel.GetViewModFilesLoadoutItemGroup(GetLoadoutItemIds(model).ToArray(), connection);
+                })
+                .ObserveOnUIThreadDispatcher()
+                .Subscribe(viewModFilesArgumentsSubject.OnNext)
+                .AddTo(disposables);
+            
+            if (collectionGroupId.HasValue)
+            {
+                LoadoutItem.Observe(connection, collectionGroupId.Value)
+                    .Select(item => item.IsEnabled())
+                    .OnUI()
+                    .Subscribe(isEnabled => IsCollectionEnabled = isEnabled)
                     .AddTo(disposables);
             }
-        );
+        });
+    }
+
+    private static async Task ToggleCollectionGroup(Optional<LoadoutItemGroupId> collectionGroupId, bool shouldEnable, IConnection connection)
+    {
+        if (!collectionGroupId.HasValue) return;
+        using var tx = connection.BeginTransaction();
+        if (shouldEnable)
+        {
+            tx.Retract(collectionGroupId.Value, LoadoutItem.Disabled, Null.Instance);
+        }
+        else
+        {
+            tx.Add(collectionGroupId.Value, LoadoutItem.Disabled, Null.Instance);
+        }
+        await tx.Commit();
+    }
+
+    private static IEnumerable<LoadoutItemId> GetLoadoutItemIds(CompositeItemModel<EntityId> itemModel)
+    {
+        return itemModel.Get<LoadoutComponents.IsEnabled>(LoadoutColumns.IsEnabled.ComponentKey).ItemIds;
     }
 }
 
-public readonly record struct ToggleEnableState(IReadOnlyCollection<(LoadoutItemId Id, bool ShouldEnable)> Ids);
+public readonly record struct ToggleEnableState(LoadoutItemId[] Ids, bool ShouldEnable);
 
-public class LoadoutTreeDataGridAdapter : TreeDataGridAdapter<LoadoutItemModel, EntityId>,
+public class LoadoutTreeDataGridAdapter :
+    TreeDataGridAdapter<CompositeItemModel<EntityId>, EntityId>,
     ITreeDataGirdMessageAdapter<ToggleEnableState>
 {
+    public Subject<ToggleEnableState> MessageSubject { get; } = new();
+
     private readonly ILoadoutDataProvider[] _loadoutDataProviders;
-    private readonly ConnectableObservable<DateTime> _ticker;
-    private readonly IConnection _connection;
     private readonly LoadoutFilter _loadoutFilter;
 
-    public Subject<ToggleEnableState> MessageSubject { get; } = new();
-    private readonly Dictionary<LoadoutItemModel, IDisposable> _commandDisposables = new();
-
     private readonly IDisposable _activationDisposable;
-    public LoadoutTreeDataGridAdapter(IServiceProvider serviceProvider, ConnectableObservable<DateTime> ticker, LoadoutFilter loadoutFilter)
+    private readonly Dictionary<CompositeItemModel<EntityId>, IDisposable> _commandDisposables = new();
+    public LoadoutTreeDataGridAdapter(IServiceProvider serviceProvider, LoadoutFilter loadoutFilter)
     {
-        _loadoutFilter = loadoutFilter;
-        _ticker = ticker;
-
         _loadoutDataProviders = serviceProvider.GetServices<ILoadoutDataProvider>().ToArray();
-        _connection = serviceProvider.GetRequiredService<IConnection>();
+        _loadoutFilter = loadoutFilter;
 
-        _activationDisposable = this.WhenActivated(static (adapter, disposables) =>
+        _activationDisposable = this.WhenActivated(static (self, disposables) =>
         {
-            Disposable.Create(adapter._commandDisposables,static commandDisposables =>
+            Disposable.Create(self._commandDisposables,static commandDisposables =>
             {
                 foreach (var kv in commandDisposables)
                 {
@@ -220,74 +243,60 @@ public class LoadoutTreeDataGridAdapter : TreeDataGridAdapter<LoadoutItemModel, 
         });
     }
 
-    protected override void BeforeModelActivationHook(LoadoutItemModel model)
+    protected override IObservable<IChangeSet<CompositeItemModel<EntityId>, EntityId>> GetRootsObservable(bool viewHierarchical)
     {
-        var disposable = model.ToggleEnableStateCommand.Subscribe(MessageSubject, static (ids, subject) => { subject.OnNext(new ToggleEnableState(ids)); });
-        model.Ticker = _ticker;
+        return _loadoutDataProviders.Select(x => x.ObserveLoadoutItems(_loadoutFilter)).MergeChangeSets();
+    }
+
+    protected override void BeforeModelActivationHook(CompositeItemModel<EntityId> model)
+    {
+        base.BeforeModelActivationHook(model);
+
+        var disposable = model.SubscribeToComponent<LoadoutComponents.IsEnabled, LoadoutTreeDataGridAdapter>(
+            key: LoadoutColumns.IsEnabled.ComponentKey,
+            state: this,
+            factory: static (self, itemModel, component) => component.CommandToggle.Subscribe((self, itemModel, component), static (_, tuple) =>
+            {
+                var (self, itemModel, component) = tuple;
+                var isEnabled = component.Value.Value;
+                var ids = component.ItemIds.ToArray();
+                var shouldEnable = !isEnabled ?? false;
+
+                self.MessageSubject.OnNext(new ToggleEnableState(ids, shouldEnable));
+            })
+        );
 
         var didAdd = _commandDisposables.TryAdd(model, disposable);
         Debug.Assert(didAdd, "subscription for the model shouldn't exist yet");
-
-        base.BeforeModelActivationHook(model);
     }
 
-    protected override void BeforeModelDeactivationHook(LoadoutItemModel model)
+    protected override void BeforeModelDeactivationHook(CompositeItemModel<EntityId> model)
     {
-        model.Ticker = null;
+        base.BeforeModelDeactivationHook(model);
 
         var didRemove = _commandDisposables.Remove(model, out var disposable);
         Debug.Assert(didRemove, "subscription for the model should exist");
         disposable?.Dispose();
-
-        base.BeforeModelDeactivationHook(model);
     }
 
-    protected override IObservable<IChangeSet<LoadoutItemModel, EntityId>> GetRootsObservable(bool viewHierarchical)
+    protected override IColumn<CompositeItemModel<EntityId>>[] CreateColumns(bool viewHierarchical)
     {
-        var observable = viewHierarchical
-            ? _loadoutDataProviders.Select(provider => provider.ObserveNestedLoadoutItems(_loadoutFilter)).MergeChangeSets()
-            : ObserveFlatLoadoutItems();
-        
-        return observable;
-    }
-
-    private IObservable<IChangeSet<LoadoutItemModel, EntityId>> ObserveFlatLoadoutItems()
-    {
-        var baseObservable = LibraryLinkedLoadoutItem
-            .ObserveAll(_connection)
-            .Filter(item => LoadoutItem.LoadoutId.Get(item).Equals(_loadoutFilter.LoadoutId));
-            
-        if (_loadoutFilter.CollectionGroupId.HasValue)
-            baseObservable = baseObservable.Filter(item => item.AsLoadoutItemGroup().AsLoadoutItem().IsChildOf(_loadoutFilter.CollectionGroupId.Value));
-                
-        return baseObservable.Transform(libraryLinkedLoadoutItem => LoadoutDataProviderHelper.ToLoadoutItemModel(_connection, libraryLinkedLoadoutItem));
-    }
-
-    protected override IColumn<LoadoutItemModel>[] CreateColumns(bool viewHierarchical)
-    {
-        var nameColumn = LoadoutItemModel.CreateNameColumn();
+        var nameColumn = ColumnCreator.Create<EntityId, SharedColumns.Name>(sortDirection: ListSortDirection.Ascending);
 
         return
         [
-            viewHierarchical ? ITreeDataGridItemModel<LoadoutItemModel, EntityId>.CreateExpanderColumn(nameColumn) : nameColumn,
-            // TODO: LoadoutItemModel.CreateVersionColumn(),
-            // TODO: LoadoutItemModel.CreateSizeColumn(),
-            LoadoutItemModel.CreateInstalledAtColumn(),
-            LoadoutItemModel.CreateToggleEnableColumn(),
+            viewHierarchical ? ITreeDataGridItemModel<CompositeItemModel<EntityId>, EntityId>.CreateExpanderColumn(nameColumn) : nameColumn,
+            ColumnCreator.Create<EntityId, SharedColumns.InstalledDate>(),
+            ColumnCreator.Create<EntityId, LoadoutColumns.IsEnabled>(),
         ];
     }
 
     private bool _isDisposed;
-
     protected override void Dispose(bool disposing)
     {
-        if (!_isDisposed)
+        if (disposing && !_isDisposed)
         {
-            if (disposing)
-            {
-                Disposable.Dispose(_activationDisposable, MessageSubject);
-            }
-
+            Disposable.Dispose(_activationDisposable, MessageSubject);
             _isDisposed = true;
         }
 

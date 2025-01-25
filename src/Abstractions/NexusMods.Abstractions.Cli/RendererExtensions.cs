@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using NexusMods.ProxyConsole.Abstractions;
 using NexusMods.ProxyConsole.Abstractions.Implementations;
 
@@ -24,6 +25,45 @@ public static class RendererExtensions
     }
 
     /// <summary>
+    /// A table renderer for when you have a collection of tuples to render
+    /// </summary>
+    public static ValueTask Table<T>(this IRenderer renderer, IEnumerable<T> rows, params ReadOnlySpan<string> columnNames)
+        where T : ITuple
+    {
+        var namesPrepared = GC.AllocateArray<IRenderable>(columnNames.Length);
+        for (var i = 0; i < columnNames.Length; i++)
+        {
+            namesPrepared[i] = Renderable.Text(columnNames[i]);
+        }
+
+        static IRenderable[] PrepareRow(T row)
+        {
+            var rowPrepared = GC.AllocateArray<IRenderable>(row.Length);
+            for (var i = 0; i < row.Length; i++)
+            {
+                rowPrepared[i] = Renderable.Text(row[i]!.ToString()!);
+            }
+            return rowPrepared;
+        }
+
+        return renderer.RenderAsync(new Table
+            {
+                Columns = namesPrepared,
+                Rows = rows.Select(PrepareRow).ToArray(),
+            }
+        );
+    }
+    
+    /// <summary>
+    /// Renders the data in the given rows to a table
+    /// </summary>
+    public static ValueTask RenderTable<T>(this IEnumerable<T> rows, IRenderer renderer, params ReadOnlySpan<string> columnNames)
+        where T : ITuple
+    {
+        return renderer.Table(rows, columnNames);
+    }
+
+    /// <summary>
     /// Renders the given text to the renderer
     /// </summary>
     /// <param name="renderer"></param>
@@ -32,6 +72,25 @@ public static class RendererExtensions
     {
         await renderer.RenderAsync(Renderable.Text(text));
     }
+    
+    /// <summary>
+    /// Starts a progress bar box in the renderer that will be stopped when the returned disposable is disposed
+    /// </summary>
+    public static async Task<IAsyncDisposable> WithProgress(this IRenderer renderer)
+    {
+        await renderer.RenderAsync(new StartProgress());
+
+        return new DisposableProgress(renderer);
+    }
+
+    private class DisposableProgress(IRenderer renderer) : IAsyncDisposable
+    { 
+        public async ValueTask DisposeAsync()
+        {
+            await renderer.RenderAsync(new StopProgress());
+        }
+    }
+
 
     /// <summary>
     /// Renders the text to the renderer with the given arguments and template
@@ -42,6 +101,18 @@ public static class RendererExtensions
     {
         // Todo: implement custom conversion and formatting for the arguments
         await renderer.RenderAsync(Renderable.Text(template, args.Select(a => a.ToString()!).ToArray()));
+    }
+    
+    /// <summary>
+    /// Renders the text to the renderer with the given arguments and template
+    /// </summary>
+    /// <param name="renderer"></param>
+    /// <param name="text"></param>
+    public static async ValueTask<int> InputError(this IRenderer renderer, string template, params object[] args)
+    {
+        // Todo: implement custom conversion and formatting for the arguments
+        await renderer.RenderAsync(Renderable.Text(template, args.Select(a => a.ToString()!).ToArray()));
+        return -1;
     }
 
     /// <summary>
@@ -66,5 +137,30 @@ public static class RendererExtensions
     {
         await renderer.Text(template, args);
         await renderer.Text("Error: {0}", ex);
+    }
+
+    /// <summary>
+    /// Creates a new progress task with the given text, the task will be deleted when the returned disposable is disposed
+    /// </summary>
+    public static async ValueTask<ProgressTask> StartProgressTask(this IRenderer renderer, string text, double? maxValue = null)
+    {
+        var taskId = Guid.NewGuid();
+        await renderer.RenderAsync(new CreateProgressTask() { TaskId = taskId, Text = text });
+        return new ProgressTask(renderer, taskId, maxValue);
+    }
+
+    /// <summary>
+    /// Wraps the enumeration in a progress task that will update the progress bar as the items are enumerated
+    /// </summary>
+    public static async IAsyncEnumerable<T> WithProgress<T>(this T[] items, IRenderer renderer, string text)
+    {
+        var increment = 1.0 / items.Length;
+        await using var task = await renderer.StartProgressTask(text);
+        
+        foreach (var item in items)
+        {
+            await task.IncrementProgress(increment);
+            yield return item;
+        }
     }
 }
