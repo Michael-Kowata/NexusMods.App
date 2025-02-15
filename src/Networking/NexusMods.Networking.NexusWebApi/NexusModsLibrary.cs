@@ -69,11 +69,23 @@ public partial class NexusModsLibrary
         using var tx = _connection.BeginTransaction();
 
         var modInfo = await _gqlClient.ModInfo.ExecuteAsync((int)uid.GameId.Value, (int)modId.Value, cancellationToken);
+        modInfo.EnsureNoErrors();
         EntityId first = default;
         foreach (var node in modInfo.Data!.LegacyMods.Nodes)
-        {
             first = node.Resolve(_connection.Db, tx);
-        }
+        
+        // Note(sewer):
+        // Make sure to also fetch all files on the mod page.
+        // The update code refreshes file info only on changes of the mod page.
+        // If our initial mod page item does not contain info on all the files,
+        // then updates are not visible unless an actual change is made to the
+        // mod page, this is somewhat undesireable.
+        var modIdString = uid.ModId.Value.ToString();
+        var gameIdString = uid.GameId.Value.ToString();
+        var filesByUid = await _gqlClient.ModFiles.ExecuteAsync(modIdString, gameIdString, cancellationToken);
+        filesByUid.EnsureNoErrors();
+        foreach (var node in filesByUid.Data!.ModFiles)
+            node.Resolve(_connection.Db, tx, first);
         
         var txResults = await tx.Commit();
         return NexusModsModPageMetadata.Load(txResults.Db, txResults[first]);
@@ -151,19 +163,32 @@ public partial class NexusModsLibrary
     }
 
     /// <summary>
+    /// Checks whether the file has already been downloaded.
+    /// </summary>
+    public async ValueTask<bool> IsAlreadyDownloaded(NXMModUrl url, CancellationToken cancellationToken)
+    {
+        var gameId = (await _mappingCache.TryGetIdAsync(GameDomain.From(url.Game), cancellationToken)).Value;
+
+        var modPage = await GetOrAddModPage(url.ModId, gameId, cancellationToken);
+        var file = await GetOrAddFile(url.FileId, modPage, cancellationToken);
+
+        var libraryItems = NexusModsLibraryItem.FindByFileMetadata(file.Db, file);
+        return libraryItems.Count != 0;
+    }
+
+    /// <summary>
     /// Parse a NXM URL and create a download job from the data
     /// </summary>
     public async Task<IJobTask<NexusModsDownloadJob, AbsolutePath>> CreateDownloadJob(
         AbsolutePath destination,
         NXMModUrl url,
-        IGameDomainToGameIdMappingCache mappingCache,
         CancellationToken cancellationToken)
     {
         var nxmData = url.Key is not null && url.ExpireTime is not null ? (url.Key.Value, url.ExpireTime.Value) : Optional.None<(NXMKey, DateTime)>();
-        var gameId = (await mappingCache.TryGetIdAsync(GameDomain.From(url.Game), cancellationToken)).Value;
+        var gameId = (await _mappingCache.TryGetIdAsync(GameDomain.From(url.Game), cancellationToken)).Value;
         return await CreateDownloadJob(destination, gameId, url.ModId, url.FileId, nxmData, cancellationToken);
     }
-    
+
     /// <summary>
     /// Given a mod ID, file ID, and game domain, create a download job
     /// </summary>

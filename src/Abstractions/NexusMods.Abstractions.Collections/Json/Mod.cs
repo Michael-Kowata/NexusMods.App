@@ -1,10 +1,12 @@
 using System.Text.Json.Serialization;
+using JetBrains.Annotations;
 using NexusMods.Abstractions.GameLocators;
 using NexusMods.Abstractions.NexusWebApi.Types;
 using NexusMods.Abstractions.NexusWebApi.Types.V2;
 
 namespace NexusMods.Abstractions.Collections.Json;
 
+[UsedImplicitly(ImplicitUseTargetFlags.WithMembers)]
 public class Mod
 {
     /// <summary>
@@ -41,4 +43,11 @@ public class Mod
     /// </summary>
     [JsonPropertyName("patches")]
     public Dictionary<string, PatchHash> Patches { get; init; } = new();
+
+    /// <summary>
+    /// Written instruction by the collection author for users.
+    /// </summary>
+    [JsonPropertyName("instructions")]
+    [LanguageInjection("text")]
+    public string Instructions { get; init; } = string.Empty;
 }

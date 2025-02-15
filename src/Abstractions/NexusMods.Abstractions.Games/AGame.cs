@@ -1,3 +1,4 @@
+using DynamicData.Kernel;
 using JetBrains.Annotations;
 using Microsoft.Extensions.DependencyInjection;
 using NexusMods.Abstractions.Diagnostics.Emitters;
@@ -5,6 +6,7 @@ using NexusMods.Abstractions.GameLocators;
 using NexusMods.Abstractions.GameLocators.GameCapabilities;
 using NexusMods.Abstractions.IO;
 using NexusMods.Abstractions.Library.Installers;
+using NexusMods.Abstractions.Loadouts;
 using NexusMods.Abstractions.Loadouts.Synchronizers;
 using NexusMods.Abstractions.NexusWebApi.Types.V2;
 using NexusMods.MnemonicDB.Abstractions;
@@ -22,6 +24,7 @@ public abstract class AGame : IGame
     private readonly IEnumerable<IGameLocator> _gameLocators;
     private readonly Lazy<ILoadoutSynchronizer> _synchronizer;
     private readonly IServiceProvider _provider;
+    private readonly IFileSystem _fs;
 
     /// <summary>
     /// Constructor.
@@ -32,6 +35,7 @@ public abstract class AGame : IGame
         _gameLocators = provider.GetServices<IGameLocator>();
         // In a Lazy so we don't get a circular dependency
         _synchronizer = new Lazy<ILoadoutSynchronizer>(() => MakeSynchronizer(provider));
+        _fs = provider.GetRequiredService<IFileSystem>();
     }
 
     /// <summary>
@@ -86,7 +90,6 @@ public abstract class AGame : IGame
             Game = this,
             LocationsRegister = new GameLocationsRegister(new Dictionary<LocationId, AbsolutePath>(locations)),
             InstallDestinations = GetInstallDestinations(locations),
-            Version = metadata.Version ?? GetVersion(metadata),
             Store = metadata.Store,
             LocatorResultMetadata = metadata.Metadata,
             Locator = locator,
@@ -95,14 +98,15 @@ public abstract class AGame : IGame
     }
 
     /// <summary>
-    /// Returns the game version if GameLocatorResult failed to get the game version.
+    /// Returns a game specific version of the game, usually from the primary executable.
+    /// Usually used for game specific diagnostics.
     /// </summary>
-    protected virtual Version GetVersion(GameLocatorResult installation)
+    public virtual Version GetLocalVersion(GameInstallMetadata.ReadOnly installation)
     {
         try
         {
             var fvi = GetPrimaryFile(installation.Store)
-                .Combine(installation.Path).FileInfo
+                .Combine(_fs.FromUnsanitizedFullPath(installation.Path)).FileInfo
                 .GetFileVersionInfo();
             return fvi.ProductVersion;
         }
@@ -131,7 +135,6 @@ public abstract class AGame : IGame
                     Game = this,
                     LocationsRegister = new GameLocationsRegister(new Dictionary<LocationId, AbsolutePath>(locations)),
                     InstallDestinations = GetInstallDestinations(locations),
-                    Version = installation.Version ?? GetVersion(installation),
                     Store = installation.Store,
                     LocatorResultMetadata = installation.Metadata,
                     Locator = locator,
@@ -151,6 +154,9 @@ public abstract class AGame : IGame
     /// </summary>
     /// <param name="locations">Result of <see cref="GetLocations"/>.</param>
     public abstract List<IModInstallDestination> GetInstallDestinations(IReadOnlyDictionary<LocationId, AbsolutePath> locations);
+
+    /// <inheritdoc/>
+    public virtual Optional<GamePath> GetFallbackCollectionInstallDirectory() => Optional<GamePath>.None;
 
     /// <inheritdoc />
     public override string ToString() => Name;

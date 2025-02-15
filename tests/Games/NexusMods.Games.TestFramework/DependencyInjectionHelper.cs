@@ -2,14 +2,18 @@ using System.Text.Json.Serialization;
 using JetBrains.Annotations;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using NexusMods.Abstractions.Games.FileHashes;
+using NexusMods.Abstractions.Games.FileHashes.Models;
 using NexusMods.Abstractions.HttpDownloader;
 using NexusMods.Abstractions.Library.Models;
 using NexusMods.Abstractions.Loadouts.Synchronizers;
+using NexusMods.Abstractions.Serialization;
 using NexusMods.Abstractions.Settings;
 using NexusMods.Collections;
 using NexusMods.CrossPlatform;
 using NexusMods.DataModel;
 using NexusMods.FileExtractor;
+using NexusMods.Games.FileHashes;
 using NexusMods.Games.Generic;
 using NexusMods.Jobs;
 using NexusMods.Library;
@@ -18,6 +22,7 @@ using NexusMods.Networking.NexusWebApi;
 using NexusMods.Paths;
 using NexusMods.Settings;
 using NexusMods.StandardGameLocators;
+using NexusMods.StandardGameLocators.TestHelpers;
 using Xunit.DependencyInjection.Logging;
 
 namespace NexusMods.Games.TestFramework;
@@ -43,7 +48,7 @@ public static class DependencyInjectionHelper
     /// </summary>
     /// <param name="serviceCollection"></param>
     /// <returns></returns>
-    public static IServiceCollection AddDefaultServicesForTesting(this IServiceCollection serviceCollection, AbsolutePath prefix = default(AbsolutePath))
+    public static IServiceCollection AddDefaultServicesForTesting(this IServiceCollection serviceCollection, AbsolutePath prefix = default(AbsolutePath), bool stubbedFileHashService = true)
     {
         const KnownPath baseKnownPath = KnownPath.EntryDirectory;
         var baseDirectory = $"DataModel.{Guid.NewGuid()}";
@@ -51,12 +56,12 @@ public static class DependencyInjectionHelper
             .GetKnownPath(KnownPath.EntryDirectory)
             .Combine($"NexusMods.Games.TestFramework-{Guid.NewGuid()}") : prefix;
 
-        return serviceCollection
+        serviceCollection
             .AddLogging(builder => builder.AddXunitOutput().SetMinimumLevel(LogLevel.Debug))
+            .AddSerializationAbstractions()
             .AddSingleton<JsonConverter, GameInstallationConverter>()
             .AddFileSystem()
             .AddSingleton<TemporaryFileManager>(_ => new TemporaryFileManager(FileSystem.Shared, prefix))
-            .AddSingleton<HttpClient>()
             .AddSingleton<TestModDownloader>()
             .AddNexusWebApi(true)
             .AddNexusModsCollections()
@@ -77,8 +82,25 @@ public static class DependencyInjectionHelper
                     new ConfigurablePath(baseKnownPath, $"{baseDirectory}/Archives"),
                 ],
             })
+            .OverrideSettingsForTests<FileHashesServiceSettings>(settings => settings with
+            {
+                HashDatabaseLocation = new ConfigurablePath(baseKnownPath, $"{baseDirectory}/FileHashes"),
+            })
             .AddSettingsManager()
             .AddFileExtractors();
+        
+        if (stubbedFileHashService)
+            serviceCollection
+                .AddHashRelationModel()
+                .AddPathHashRelationModel()
+                .AddGogBuildModel()
+                .AddSteamManifestModel()
+                .AddSingleton<IFileHashesService, StubbedFileHasherService>();
+        else 
+            serviceCollection
+                .AddFileHashes();
+
+        return serviceCollection;
     }
 
     /// <summary>

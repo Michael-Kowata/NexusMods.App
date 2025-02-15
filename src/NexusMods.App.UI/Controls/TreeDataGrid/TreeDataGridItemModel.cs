@@ -4,7 +4,6 @@ using DynamicData;
 using JetBrains.Annotations;
 using NexusMods.Abstractions.UI;
 using NexusMods.Abstractions.UI.Extensions;
-using NexusMods.App.UI.Extensions;
 using ObservableCollections;
 using R3;
 using Observable = System.Reactive.Linq.Observable;
@@ -29,7 +28,7 @@ public interface ITreeDataGridItemModel<out TModel, TKey> : ITreeDataGridItemMod
     where TModel : class, ITreeDataGridItemModel<TModel, TKey>
     where TKey : notnull
 {
-    BindableReactiveProperty<bool> HasChildren { get; }
+    IReadOnlyBindableReactiveProperty<bool> HasChildren { get; }
 
     IEnumerable<TModel> Children { get; }
 
@@ -52,15 +51,16 @@ public interface ITreeDataGridItemModel<out TModel, TKey> : ITreeDataGridItemMod
 /// <summary>
 /// Generic variant of <see cref="TreeDataGridItemModel"/>.
 /// </summary>
-[PublicAPI]
 public class TreeDataGridItemModel<TModel, TKey> : TreeDataGridItemModel, ITreeDataGridItemModel<TModel, TKey>
     where TModel : class, ITreeDataGridItemModel<TModel, TKey>
     where TKey : notnull
 {
-    public IObservable<bool> HasChildrenObservable { get; init; } = Observable.Return(false);
-    public BindableReactiveProperty<bool> HasChildren { get; } = new();
+    public IObservable<bool> HasChildrenObservable { private get; init; }
 
-    public IObservable<IChangeSet<TModel, TKey>> ChildrenObservable { get; init; } = Observable.Empty<IChangeSet<TModel, TKey>>();
+    private readonly BindableReactiveProperty<bool> _hasChildren = new();
+    public IReadOnlyBindableReactiveProperty<bool> HasChildren => _hasChildren;
+
+    public IObservable<IChangeSet<TModel, TKey>> ChildrenObservable { private get; init; }
 
     private ObservableList<TModel> _children = [];
     private readonly INotifyCollectionChangedSynchronizedViewList<TModel> _childrenView;
@@ -93,8 +93,11 @@ public class TreeDataGridItemModel<TModel, TKey> : TreeDataGridItemModel, ITreeD
     private readonly SerialDisposable _childrenCollectionInitializationSerialDisposable = new();
     private readonly SerialDisposable _childrenObservableSerialDisposable = new();
 
-    protected TreeDataGridItemModel()
+    protected TreeDataGridItemModel(IObservable<bool>? hasChildrenObservable = null,
+        IObservable<IChangeSet<TModel, TKey>>? childrenObservable = null)
     {
+        HasChildrenObservable = hasChildrenObservable ?? Observable.Return(false);
+        ChildrenObservable = childrenObservable ?? Observable.Empty<IChangeSet<TModel, TKey>>();
         _childrenView = _children.ToNotifyCollectionChanged();
 
         _modelActivationDisposable = WhenModelActivated(this, static (model, disposables) =>
@@ -102,7 +105,7 @@ public class TreeDataGridItemModel<TModel, TKey> : TreeDataGridItemModel, ITreeD
             // NOTE(erri120): TreeDataGrid uses `HasChildren` to show/hide the expander.
             model.HasChildrenObservable
                 .OnUI()
-                .SubscribeWithErrorLogging(hasChildren => model.HasChildren.Value = hasChildren)
+                .SubscribeWithErrorLogging(hasChildren => model._hasChildren.Value = hasChildren)
                 .AddTo(disposables);
 
             // NOTE(erri120): We only do this once. If you have an expanded parent and scroll
@@ -165,7 +168,7 @@ public class TreeDataGridItemModel<TModel, TKey> : TreeDataGridItemModel, ITreeD
                     _modelActivationDisposable,
                     _childrenObservableSerialDisposable,
                     _childrenCollectionInitializationSerialDisposable,
-                    HasChildren,
+                    _hasChildren,
                     IsSelected
                 );
             }

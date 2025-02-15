@@ -1,17 +1,18 @@
-using System.Collections.Concurrent;
 using DynamicData.Kernel;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NexusMods.Abstractions.Collections;
 using NexusMods.Abstractions.Collections.Json;
+using NexusMods.Abstractions.GameLocators;
+using NexusMods.Abstractions.Games;
 using NexusMods.Abstractions.IO;
 using NexusMods.Abstractions.Jobs;
 using NexusMods.Abstractions.Library;
+using NexusMods.Abstractions.Library.Installers;
 using NexusMods.Abstractions.Loadouts;
 using NexusMods.Abstractions.NexusModsLibrary;
 using NexusMods.Abstractions.NexusModsLibrary.Models;
 using NexusMods.MnemonicDB.Abstractions;
-using NexusMods.MnemonicDB.Abstractions.ElementComparers;
 using NexusMods.Networking.NexusWebApi;
 
 namespace NexusMods.Collections;
@@ -127,14 +128,16 @@ public class InstallCollectionJob : IJobDefinitionWithStart<InstallCollectionJob
             collectionGroup = groupResult.Remap(group);
         }
 
-        var installed = new ConcurrentBag<(ModAndDownload, LoadoutItemGroup.ReadOnly)>();
+        var loadout = Loadout.Load(Connection.Db, TargetLoadout);
+        var game = (loadout.InstallationInstance.Game as IGame)!;
+        var fallbackInstaller = FallbackCollectionDownloadInstaller.Create(ServiceProvider, game);
+
         await Parallel.ForEachAsync(modsAndDownloads, context.CancellationToken, async (modAndDownload, _) =>
         {
             try
             {
                 Logger.LogDebug("Installing `{DownloadName}` (index={Index}) into `{CollectionName}/{RevisionNumber}`", modAndDownload.Mod.Name, modAndDownload.Download.ArrayIndex, RevisionMetadata.Collection.Name, RevisionMetadata.RevisionNumber);
-                var result = await InstallMod(modAndDownload, collectionGroup);
-                installed.Add((modAndDownload, result));
+                await InstallMod(modAndDownload, collectionGroup, fallbackInstaller, game.GetFallbackCollectionInstallDirectory());
             }
             catch (Exception e)
             {
@@ -142,21 +145,14 @@ public class InstallCollectionJob : IJobDefinitionWithStart<InstallCollectionJob
             }
         });
 
-        using (var tx = Connection.BeginTransaction())
-        {
-            foreach (var (tuple, modGroup) in installed)
-            {
-                tx.Add(modGroup.Id, LoadoutItem.Name, tuple.Mod.Name);
-            }
-
-            tx.Retract(collectionGroup.Id, LoadoutItem.Disabled, Null.Instance);
-            await tx.Commit();
-        }
-
         return collectionGroup;
     }
 
-    private IJobTask<InstallCollectionDownloadJob, LoadoutItemGroup.ReadOnly> InstallMod(ModAndDownload modAndDownload, NexusCollectionLoadoutGroup.ReadOnly collectionGroup)
+    private IJobTask<InstallCollectionDownloadJob, LoadoutItemGroup.ReadOnly> InstallMod(
+        ModAndDownload modAndDownload,
+        NexusCollectionLoadoutGroup.ReadOnly collectionGroup,
+        ILibraryItemInstaller? fallbackInstaller,
+        Optional<GamePath> fallbackCollectionInstallDirectory)
     {
         var monitor = ServiceProvider.GetRequiredService<IJobMonitor>();
 
@@ -172,6 +168,9 @@ public class InstallCollectionJob : IJobDefinitionWithStart<InstallCollectionJob
             Connection = Connection,
             FileStore = FileStore,
             LibraryService = LibraryService,
+
+            FallbackInstaller = fallbackInstaller,
+            FallbackCollectionInstallDirectory = fallbackCollectionInstallDirectory,
         };
 
         return monitor.Begin<InstallCollectionDownloadJob, LoadoutItemGroup.ReadOnly>(job);

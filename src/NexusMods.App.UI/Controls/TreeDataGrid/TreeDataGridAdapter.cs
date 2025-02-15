@@ -7,6 +7,7 @@ using NexusMods.Abstractions.UI.Extensions;
 using NexusMods.App.UI.Extensions;
 using ObservableCollections;
 using R3;
+using System.Reactive.Linq;
 
 namespace NexusMods.App.UI.Controls;
 
@@ -43,11 +44,11 @@ public abstract class TreeDataGridAdapter<TModel, TKey> : ReactiveR3Object
                 {
                     var (model, isActivating) = tuple;
 
-                    if (isActivating)
+                    if (isActivating && !model.IsActivated)
                     {
                         self.BeforeModelActivationHook(model);
                         model.Activate();
-                    } else
+                    } else if (!isActivating && model.IsActivated)
                     {
                         self.BeforeModelDeactivationHook(model);
                         model.Deactivate();
@@ -66,6 +67,7 @@ public abstract class TreeDataGridAdapter<TModel, TKey> : ReactiveR3Object
 
             self.ViewHierarchical
                 .AsObservable()
+                .ObserveOnUIThreadDispatcher()
                 .Do(self, static (viewHierarchical, self) =>
                 {
                     self.Roots.Clear();
@@ -99,9 +101,9 @@ public abstract class TreeDataGridAdapter<TModel, TKey> : ReactiveR3Object
                     return self
                         .GetRootsObservable(viewHierarchical)
                         .OnUI()
+                        .Do(changeSet => self.Roots.ApplyChanges(changeSet))
                         .DisposeMany()
                         .ToObservable()
-                        .Do(self, static (changeSet, self) => self.Roots.ApplyChanges(changeSet))
                         .Select(viewHierarchical, static (_, viewHierarchical) => viewHierarchical);
                 })
                 .Switch()
@@ -119,7 +121,7 @@ public abstract class TreeDataGridAdapter<TModel, TKey> : ReactiveR3Object
             SingleSelect = false,
         };
 
-        var selectionObservable = Observable.FromEventHandler<TreeSelectionModelSelectionChangedEventArgs<TModel>>(
+        var selectionObservable = R3.Observable.FromEventHandler<TreeSelectionModelSelectionChangedEventArgs<TModel>>(
             addHandler: handler => selection.SelectionChanged += handler,
             removeHandler: handler => selection.SelectionChanged -= handler
         ).Select(tuple => tuple.e);

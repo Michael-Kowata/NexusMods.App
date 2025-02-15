@@ -16,7 +16,7 @@ public partial class LibraryView : ReactiveUserControl<ILibraryViewModel>
     {
         InitializeComponent();
 
-        TreeDataGridViewHelper.SetupTreeDataGridAdapter<LibraryView, ILibraryViewModel, ILibraryItemModel, EntityId>(this, TreeDataGrid, vm => vm.Adapter);
+        TreeDataGridViewHelper.SetupTreeDataGridAdapter<LibraryView, ILibraryViewModel, CompositeItemModel<EntityId>, EntityId>(this, TreeDataGridLibrary, vm => vm.Adapter);
 
         this.WhenActivated(disposables =>
         {
@@ -41,9 +41,6 @@ public partial class LibraryView : ReactiveUserControl<ILibraryViewModel>
             this.OneWayBind(ViewModel, vm => vm.Adapter.SourceCount.Value, view => view.TextNumMods.Text, static i => i.ToString("N0"))
                 .AddTo(disposables);
 
-            this.BindCommand(ViewModel, vm => vm.SwitchViewCommand, view => view.SwitchView)
-                .AddTo(disposables);
-
             this.BindCommand(ViewModel, vm => vm.RemoveSelectedItemsCommand, view => view.RemoveModButton)
                 .AddTo(disposables);
 
@@ -59,7 +56,7 @@ public partial class LibraryView : ReactiveUserControl<ILibraryViewModel>
             this.BindCommand(ViewModel, vm => vm.OpenNexusModsCommand, view => view.GetModsFromNexusButton)
                 .AddTo(disposables);
 
-            this.OneWayBind(ViewModel, vm => vm.Adapter.Source.Value, view => view.TreeDataGrid.Source)
+            this.OneWayBind(ViewModel, vm => vm.Adapter.Source.Value, view => view.TreeDataGridLibrary.Source)
                 .AddTo(disposables);
 
             this.OneWayBind(ViewModel, vm => vm.Adapter.IsSourceEmpty.Value, view => view.EmptyState.IsActive)
@@ -69,6 +66,12 @@ public partial class LibraryView : ReactiveUserControl<ILibraryViewModel>
                 .AddTo(disposables);
             
             this.BindCommand(ViewModel, vm => vm.OpenNexusModsCommand, view => view.EmptyLibraryLinkButton)
+                .AddTo(disposables);
+            
+            this.BindCommand(ViewModel, vm => vm.RefreshUpdatesCommand, view => view.Refresh)
+                .AddTo(disposables);
+            
+            this.BindCommand(ViewModel, vm => vm.UpdateAllCommand, view => view.UpdateAll)
                 .AddTo(disposables);
         });
     }

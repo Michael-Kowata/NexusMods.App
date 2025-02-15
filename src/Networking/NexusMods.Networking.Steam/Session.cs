@@ -6,6 +6,8 @@ using NexusMods.Abstractions.Steam.DTOs;
 using NexusMods.Abstractions.Steam.Values;
 using NexusMods.Networking.Steam.DTOs;
 using NexusMods.Paths;
+using Polly;
+using Polly.Retry;
 using SteamKit2;
 using SteamKit2.Authentication;
 using SteamKit2.CDN;
@@ -22,8 +24,8 @@ public class Session : ISteamSession
 {
     private bool _isConnected = false;
     private bool _isLoggedOn = false;
-    
-    private readonly ILogger<Session> _logger;
+
+    internal readonly ILogger<Session> _logger;
     private readonly IAuthInterventionHandler _handler;
 
     /// <summary>
@@ -57,7 +59,8 @@ public class Session : ISteamSession
 
     private ConcurrentDictionary<(AppId, DepotId), byte[]> _depotKeys = new();
     private ConcurrentDictionary<(AppId, DepotId, ManifestId, string Branch), ulong> _manifestRequestCodes = new();
-    
+    internal readonly ResiliencePipeline _pipeline;
+
     public Session(ILogger<Session> logger, IAuthInterventionHandler handler, IAuthStorage storage)
     {
         _logger = logger;
@@ -83,6 +86,11 @@ public class Session : ISteamSession
         _callbacks.Subscribe(WrapAsync<SteamClient.DisconnectedCallback>(DisconnectedCallback));
         _callbacks.Subscribe(WrapAsync<SteamUser.LoggedOnCallback>(LoggedOnCallback));
         _callbacks.Subscribe(WrapAsync<SteamApps.LicenseListCallback>(LicenseListCallback));
+
+        _pipeline = new ResiliencePipelineBuilder()
+            .AddRetry(new RetryStrategyOptions())
+            .AddTimeout(TimeSpan.FromSeconds(10))
+            .Build();
     }
 
     /// <summary>
@@ -132,6 +140,29 @@ public class Session : ISteamSession
                 }
             );
         }
+        else if (Environment.GetEnvironmentVariable("STEAM_USER") != null)
+        {
+            _logger.LogInformation("Using environment variables to log in.");
+            var authSession = await _steamClient.Authentication.BeginAuthSessionViaCredentialsAsync(new AuthSessionDetails
+            {
+                Username = Environment.GetEnvironmentVariable("STEAM_USER"),
+                Password = Environment.GetEnvironmentVariable("STEAM_PASS"),
+            });
+            
+            var pollResponse = await authSession.PollingWaitForResultAsync();
+            await _authStorage.SaveAsync(new AuthData
+            {
+                Username = pollResponse.AccountName,
+                RefreshToken = pollResponse.RefreshToken,
+            }.Save());
+            
+            _steamUser.LogOn(new SteamUser.LogOnDetails
+                {
+                    Username = pollResponse.AccountName,
+                    AccessToken = pollResponse.RefreshToken,
+                }
+            );
+        }
         else
         {
             _logger.LogInformation("No saved auth data, logging in via QR code.");
@@ -164,7 +195,13 @@ public class Session : ISteamSession
     {
         return arg => Task.Run(async () => await action(arg));
     }
-    
+
+    /// <inheritdoc />
+    public async Task Connect(CancellationToken token)
+    {
+        await ConnectedAsync(token);
+    }
+
     public async Task<ProductInfo> GetProductInfoAsync(AppId appId, CancellationToken cancellationToken = default)
     {
         await ConnectedAsync(cancellationToken);
@@ -240,7 +277,10 @@ public class Session : ISteamSession
     public async Task<Manifest> GetManifestContents(AppId appId, DepotId depotId, ManifestId manifestId, string branch, CancellationToken token = default)
     {
         await ConnectedAsync(token);
-        return await _cdnPool.GetManifestContents(appId, depotId, manifestId, branch, token);
+        return await _pipeline.ExecuteAsync(async token => await _cdnPool.GetManifestContents(appId, depotId, manifestId,
+                branch, token
+            ), token
+        );
     }
 
     public Stream GetFileStream(AppId appId, Manifest manifest, RelativePath file)
@@ -248,6 +288,7 @@ public class Session : ISteamSession
         var chunkedProvider = new DepotChunkProvider(this, appId, manifest.DepotId,
             manifest, file
         );
-        return new ChunkedStream<DepotChunkProvider>(chunkedProvider);
+        // 48 1MB chunks, 32 preloaded
+        return new ChunkedStream<DepotChunkProvider>(chunkedProvider, capacity: 48, preFetch: 32);
     }
 }

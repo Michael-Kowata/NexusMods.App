@@ -245,10 +245,13 @@ public class CollectionDownloader
     /// <summary>
     /// Checks whether the collection is installed.
     /// </summary>
-    public IObservable<bool> IsCollectionInstalledObservable(CollectionRevisionMetadata.ReadOnly revision, IObservable<Optional<CollectionGroup.ReadOnly>> groupObservable)
+    public IObservable<bool> IsCollectionInstalledObservable(
+        CollectionRevisionMetadata.ReadOnly revision, 
+        IObservable<Optional<CollectionGroup.ReadOnly>> groupObservable, 
+        ItemType itemType = ItemType.Required)
     {
         var observables = revision.Downloads
-            .Where(download => DownloadMatchesItemType(download, ItemType.Required))
+            .Where(download => DownloadMatchesItemType(download, itemType))
             .Select(download => GetStatusObservable(download, groupObservable).Select(static status => status.IsInstalled(out _)));
 
         return observables.CombineLatest(static list => list.All(static installed => installed));
@@ -331,44 +334,27 @@ public class CollectionDownloader
 
     private static CollectionDownloadStatus GetStatus(CollectionDownloadExternal.ReadOnly download, Optional<CollectionGroup.ReadOnly> collectionGroup, IDb db)
     {
-        var libraryFile = default(LibraryFile.ReadOnly);
+        var datoms = db.Datoms(LibraryFile.Md5, download.Md5);
+        if (datoms.Count == 0) return new CollectionDownloadStatus.NotDownloaded();
 
-        var directDownloadDatoms = db.Datoms(DirectDownloadLibraryFile.Md5, download.Md5);
-        if (directDownloadDatoms.Count > 0)
+        foreach (var datom in datoms)
         {
-            foreach (var datom in directDownloadDatoms)
-            {
-                libraryFile = DirectDownloadLibraryFile.Load(db, datom.E).AsLibraryFile();
-                if (libraryFile.IsValid()) break;
-            }
+            var libraryFile = DirectDownloadLibraryFile.Load(db, datom.E).AsLibraryFile();
+            if (libraryFile.IsValid()) return GetStatus(libraryFile.AsLibraryItem(), collectionGroup, db);
         }
 
-        if (!libraryFile.IsValid())
-        {
-            var locallyAddedDatoms = db.Datoms(LocalFile.Md5, download.Md5);
-            if (locallyAddedDatoms.Count > 0)
-            {
-                foreach (var datom in locallyAddedDatoms)
-                {
-                    libraryFile = LocalFile.Load(db, datom.E).AsLibraryFile();
-                    if (libraryFile.IsValid()) break;
-                }
-            }
-        }
-
-        if (!libraryFile.IsValid()) return new CollectionDownloadStatus.NotDownloaded();
-        return GetStatus(libraryFile.AsLibraryItem(), collectionGroup, db);
+        return new CollectionDownloadStatus.NotDownloaded();
     }
 
     private IObservable<CollectionDownloadStatus> GetStatusObservable(
         CollectionDownloadExternal.ReadOnly download,
         IObservable<Optional<CollectionGroup.ReadOnly>> groupObservable)
     {
-        var directDownloads = _connection.ObserveDatoms(SliceDescriptor.Create(DirectDownloadLibraryFile.Md5, download.Md5, _connection.AttributeCache));
-        var locallyAdded = _connection.ObserveDatoms(SliceDescriptor.Create(LocalFile.Md5, download.Md5, _connection.AttributeCache));
+        var observable = _connection.ObserveDatoms(SliceDescriptor.Create(LibraryFile.Md5, download.Md5, _connection.AttributeCache));
 
-        return directDownloads.MergeChangeSets(locallyAdded)
+        return observable
             .QueryWhenChanged(query => query.Items.FirstOrOptional(static _ => true))
+            .Prepend(Optional<Datom>.None)
             .DistinctUntilChanged(OptionalDatomComparer.Instance)
             .SelectMany(optional =>
             {
@@ -772,6 +758,21 @@ public readonly struct CollectionDownloadStatus : IEquatable<CollectionDownloadS
 
     /// <inheritdoc/>
     public override int GetHashCode() => Value.GetHashCode();
+}
+
+file class DatomEntityIdEqualityComparer : IEqualityComparer<Datom>
+{
+    public static readonly IEqualityComparer<Datom> Instance = new DatomEntityIdEqualityComparer();
+
+    public bool Equals(Datom x, Datom y)
+    {
+        return x.E == y.E;
+    }
+
+    public int GetHashCode(Datom obj)
+    {
+        return obj.E.GetHashCode();
+    }
 }
 
 internal class OptionalDatomComparer : IEqualityComparer<Optional<Datom>>

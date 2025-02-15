@@ -25,7 +25,6 @@ using NLog.Extensions.Logging;
 using NLog.Targets;
 using ReactiveUI;
 using Spectre.Console;
-using Spectre.Console.Advanced;
 
 namespace NexusMods.App;
 
@@ -62,15 +61,30 @@ public class Program
         );
         var services = host.Services;
 
-        if (startupMode.RunAsMain)
-        {
-            // Run the migrations
-            var migration = services.GetRequiredService<MigrationService>();
-            migration.Run().Wait();
-        }
-
         // Okay to do wait here, as we are in the main process thread.
         host.StartAsync().Wait(timeout: TimeSpan.FromMinutes(5));
+        
+        if (startupMode.RunAsMain)
+        {
+            var dataModelSettings = services.GetRequiredService<ISettingsManager>().Get<DataModelSettings>();
+            var fileSystem = services.GetRequiredService<IFileSystem>();
+
+            var modelExists = dataModelSettings.MnemonicDBPath.ToPath(fileSystem).DirectoryExists();
+            
+            // This will startup the MnemonicDb connection
+            var migration = services.GetRequiredService<MigrationService>();
+            if (modelExists)
+            {
+                // Run the migrations
+                migration.MigrateAll().Wait();
+            }
+            else
+            {
+                // Otherwise, perform the initial setup
+                migration.InitialSetup().Wait();
+            }
+        }
+
 
         // Start the CLI server if we are the main process.
         var cliServer = services.GetService<CliServer>();

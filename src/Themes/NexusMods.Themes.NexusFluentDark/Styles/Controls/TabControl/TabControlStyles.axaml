@@ -10,7 +10,10 @@
                     <TabItem Header="Tab 1">
                         <TextBlock Text="Content for Tab 1" />
                     </TabItem>
-                    <TabItem Header="Tab 2">
+                    <TabItem>
+                        <TabItem.Header>
+                            <TextBlock Text="Tab 2"></TextBlock>
+                        </TabItem.Header>
                         <TextBlock Text="Content for Tab 2" />
                     </TabItem>
                     <TabItem Header="Tab 3">
@@ -70,9 +73,13 @@
         <!-- <Setter Property="HorizontalAlignment" Value="Stretch" /> -->
 
         <!-- tab item headers text -->
+        <!-- header padding -->
+        <Style Selector="^[TabStripPlacement=Top] /template/ ItemsPresenter#PART_ItemsPresenter">
+            <Setter Property="Margin" Value="0,0,0,0" />
+        </Style>
 
         <Style Selector="^ TabItem">
-            <Setter Property="Padding" Value="12,0,12,0" />
+            <Setter Property="Padding" Value="0,0,24,0" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="CornerRadius" Value="0" />
             <Setter Property="Foreground" Value="{StaticResource NeutralSubduedBrush}" />
@@ -94,9 +101,9 @@
                     </Style>
                 </Style>
             </Style>
-
+            
             <!-- this is our secondary way without custom header and only using text -->
-            <Style Selector="^ > AccessText">
+            <Style Selector="^ > AccessText,^ > TextBlock">
                 <Setter Property="Theme" Value="{StaticResource BodyXLNormalTheme}" />
             </Style>
 
@@ -155,8 +162,8 @@
             <Setter Property="Padding" Value="0,0" />
             
             <!-- header padding -->
-            <Style Selector="^ > Border > DockPanel > ItemsPresenter#PART_ItemsPresenter">
-                <Setter Property="Margin" Value="0,0" />
+            <Style Selector="^[TabStripPlacement=Top] /template/ ItemsPresenter#PART_ItemsPresenter">
+                <Setter Property="Margin" Value="0" />
             </Style>
             
             <Style Selector="^ TabItem">

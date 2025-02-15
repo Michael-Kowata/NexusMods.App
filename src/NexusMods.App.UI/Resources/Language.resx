@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 
 <root>
-    <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+                xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
         <xsd:element name="root" msdata:IsDataSet="true">
 
         </xsd:element>
@@ -13,10 +14,14 @@
         <value>1.3</value>
     </resheader>
     <resheader name="reader">
-        <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=2.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+        <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=2.0.0.0, Culture=neutral,
+            PublicKeyToken=b77a5c561934e089
+        </value>
     </resheader>
     <resheader name="writer">
-        <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=2.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+        <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=2.0.0.0, Culture=neutral,
+            PublicKeyToken=b77a5c561934e089
+        </value>
     </resheader>
     <data name="Newsfeed" xml:space="preserve">
         <value>Newsfeed</value>
@@ -112,10 +117,13 @@
         <value>STATUS</value>
     </data>
     <data name="LaunchButtonViewModel_LaunchGame_RUNNING" xml:space="preserve">
-        <value>Running...</value>
+        <value>GAME RUNNING...</value>
     </data>
     <data name="LaunchButtonViewModel_LaunchGame_LAUNCH" xml:space="preserve">
-        <value>Play</value>
+        <value>PLAY</value>
+    </data>
+    <data name="LaunchButtonViewModel_LaunchGame_ToolTip" xml:space="preserve">
+        <value>Click to launch the game</value>
     </data>
     <data name="StringFormatters__SecondsRemaining_secs" xml:space="preserve">
         <value>{0} secs</value>
@@ -140,6 +148,9 @@
     </data>
     <data name="Nexus_Premium_Status__Free" xml:space="preserve">
         <value>FREE</value>
+    </data>
+    <data name="Nexus_Premium_Status__Supporter" xml:space="preserve">
+        <value>SUPPORTER</value>
     </data>
     <data name="SearchBox__Search" xml:space="preserve">
         <value>Search</value>
@@ -231,6 +242,9 @@
     <data name="MyGamesView__Detected_games" xml:space="preserve">
         <value>Supported Games</value>
     </data>
+    <data name="MyGamesView__Page_Description" xml:space="preserve">
+        <value>Add games to get started</value>
+    </data>
     <data name="Button_Manage" xml:space="preserve">
         <value>Manage</value>
     </data>
@@ -316,7 +330,7 @@
         <value>Activate &amp; Apply</value>
     </data>
     <data name="ApplyControlViewModel__APPLY" xml:space="preserve">
-        <value>Apply</value>
+        <value>APPLY</value>
     </data>
     <data name="ApplyingControlView__ApplyingText" xml:space="preserve">
         <value>Applying...</value>
@@ -521,6 +535,9 @@
     <data name="AddPanelToolTip" xml:space="preserve">
         <value>Add a panel for split screen viewing</value>
     </data>
+    <data name="MaxPanelsAddedToolTip" xml:space="preserve">
+        <value>Max panels reached</value>
+    </data>
     <data name="Panel_Add_tab_ToolTip" xml:space="preserve">
         <value>Add tab</value>
     </data>
@@ -601,6 +618,12 @@
         <value>Download {0} mods from Nexus Mods</value>
         <comment>{0} is the name of the currently managed game</comment>
     </data>
+    <data name="DiagnosticListView.Page_Title" xml:space="preserve">
+        <value>Health Check</value>
+    </data>
+    <data name="DiagnosticListView.Page_Description" xml:space="preserve">
+        <value>Review your Loadout for any issues and learn how to resolve them if needed</value>
+    </data>
     <data name="DiagnosticListView.EmptyState.Header" xml:space="preserve">
         <value>Your loadout passed the health check without issues</value>
     </data>
@@ -625,6 +648,10 @@
     <data name="MyLoadoutsPageDescriptionText" xml:space="preserve">
         <value>Create game Loadouts which contain their own individual mod preferences and settings. Switch between Loadouts and apply the one you want to play.</value>
     </data>
+    <data name="SettingsView_Description" xml:space="preserve">
+        <value>Manage your preferences.</value>
+    </data>
+    
     <data name="MyLoadoutsGameSectionHeading" xml:space="preserve">
         <value>{0} Loadouts</value>
         <comment>Where {0} is the name of the game</comment>
@@ -715,6 +742,9 @@ To apply changes or launch the game again, please close the game first.</value>
     <data name="TopBar_Back_ToolTip" xml:space="preserve">
         <value>Back</value>
     </data>
+    <data name="TopBar_GiveFeedback_ToolTip" xml:space="preserve">
+        <value>Click to give feedback and help us improve.</value>
+    </data>
     <data name="TopBarActions__LOG_IN_ToolTip" xml:space="preserve">
         <value>Connect your Nexus Mods account</value>
     </data>
@@ -722,7 +752,7 @@ To apply changes or launch the game again, please close the game first.</value>
         <value>Remove the selected mod(s) from this loadout</value>
     </data>
     <data name="LoadoutGridView__View_Files_ToolTip" xml:space="preserve">
-        <value />
+        <value/>
     </data>
     <data name="CollectionDownloadViewModel_Ready_to_install" xml:space="preserve">
         <value>Ready to install - All required mods downloaded</value>
@@ -730,16 +760,54 @@ To apply changes or launch the game again, please close the game first.</value>
     <data name="CollectionDownloadViewModel_Num_required_mods_downloaded" xml:space="preserve">
         <value>{0} of {1} required mods downloaded</value>
     </data>
+    <data name="FileOriginPage_UpdateAll" xml:space="preserve">
+        <value>Update All</value>
+    </data>
     <data name="LeftMenu_Label_Installed_Mods" xml:space="preserve">
         <value>INSTALLED MODS</value>
     </data>
     <data name="LeftMenu_Label_Utilities" xml:space="preserve">
         <value>UTILITIES</value>
     </data>
-    <data name="CollectionDownloadViewModel_CollectionDownloadViewModel_Ready_to_play___All_required_mods_installed" xml:space="preserve">
+    <data name="CollectionDownloadViewModel_CollectionDownloadViewModel_Ready_to_play___All_required_mods_installed"
+          xml:space="preserve">
         <value>Ready to play - All required mods installed</value>
+    </data>
+    <data name="LibraryItemButtonUpdate_Single" xml:space="preserve">
+        <value>Download update</value>
+    </data>
+    <data name="LibraryItemButtonUpdate_CounterInBracket" xml:space="preserve">
+        <value>Download update ({0})</value>
+    </data>
+    <data name="LibraryItemButtonUpdate_All" xml:space="preserve">
+        <value>Download all</value>
     </data>
     <data name="LoadoutView_Title_Installed_Mods_Default" xml:space="preserve">
         <value>All</value>
+    </data>
+    <data name="LoadoutLeftMenuViewModel_External_Changes" xml:space="preserve">
+        <value>External Changes</value>
+    </data>
+    <data name="LoadoutLeftMenuViewModel_External_Changes_ToolTip" xml:space="preserve">
+        <value>Review, remove, or restore changes made outside the app.</value>
+    </data>
+
+    <data name="CollectionDownloadViewModel_DownloadRequired" xml:space="preserve">
+        <value>Download all required mods</value>
+    </data>
+    <data name="CollectionDownloadViewModel_InstallCollection" xml:space="preserve">
+        <value>Install Collection</value>
+    </data>
+    <data name="CollectionDownloadViewModel_ViewCollection" xml:space="preserve">
+        <value>View Installed Collection</value>
+    </data>
+    <data name="CollectionDownloadViewModel_UpdateCollection" xml:space="preserve">
+        <value>Install Update</value>
+    </data>
+    <data name="CollectionDownloadViewModel_DownloadOptional" xml:space="preserve">
+        <value>Download all optional mods</value>
+    </data>
+    <data name="CollectionDownloadViewModel_InstallOptional" xml:space="preserve">
+        <value>Install downloaded optional mods</value>
     </data>
 </root>

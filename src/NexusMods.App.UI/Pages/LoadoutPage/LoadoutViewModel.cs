@@ -120,7 +120,8 @@ public class LoadoutViewModel : APageViewModel<ILoadoutViewModel>, ILoadoutViewM
                 false
             );
 
-        RemoveItemCommand = hasSelection.ToReactiveCommand<Unit>(async (_, _) =>
+        RemoveItemCommand = hasSelection
+            .ToReactiveCommand<Unit>(async (_, _) =>
             {
                 var ids = Adapter.SelectedModels
                     .SelectMany(static itemModel => GetLoadoutItemIds(itemModel))
@@ -206,7 +207,7 @@ public class LoadoutViewModel : APageViewModel<ILoadoutViewModel>, ILoadoutViewM
 
     private static IEnumerable<LoadoutItemId> GetLoadoutItemIds(CompositeItemModel<EntityId> itemModel)
     {
-        return itemModel.Get<LoadoutComponents.IsEnabled>(LoadoutColumns.IsEnabled.ComponentKey).ItemIds;
+        return itemModel.Get<LoadoutComponents.IsEnabled>(LoadoutColumns.IsEnabled.IsEnabledComponentKey).ItemIds;
     }
 }
 
@@ -253,11 +254,11 @@ public class LoadoutTreeDataGridAdapter :
         base.BeforeModelActivationHook(model);
 
         var disposable = model.SubscribeToComponent<LoadoutComponents.IsEnabled, LoadoutTreeDataGridAdapter>(
-            key: LoadoutColumns.IsEnabled.ComponentKey,
+            key: LoadoutColumns.IsEnabled.IsEnabledComponentKey,
             state: this,
             factory: static (self, itemModel, component) => component.CommandToggle.Subscribe((self, itemModel, component), static (_, tuple) =>
             {
-                var (self, itemModel, component) = tuple;
+                var (self, _, component) = tuple;
                 var isEnabled = component.Value.Value;
                 var ids = component.ItemIds.ToArray();
                 var shouldEnable = !isEnabled ?? false;
@@ -287,6 +288,7 @@ public class LoadoutTreeDataGridAdapter :
         [
             viewHierarchical ? ITreeDataGridItemModel<CompositeItemModel<EntityId>, EntityId>.CreateExpanderColumn(nameColumn) : nameColumn,
             ColumnCreator.Create<EntityId, SharedColumns.InstalledDate>(),
+            ColumnCreator.Create<EntityId, LoadoutColumns.Collections>(),
             ColumnCreator.Create<EntityId, LoadoutColumns.IsEnabled>(),
         ];
     }

@@ -1,12 +1,11 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Reactive.Linq;
 using Avalonia.Controls.Models.TreeDataGrid;
 using Avalonia.Media.Imaging;
 using DynamicData;
-using DynamicData.Aggregation;
 using DynamicData.Kernel;
 using Microsoft.Extensions.DependencyInjection;
-using NexusMods.Abstractions.Collections;
 using NexusMods.Abstractions.Jobs;
 using NexusMods.Abstractions.Loadouts;
 using NexusMods.Abstractions.NexusModsLibrary.Models;
@@ -14,6 +13,7 @@ using NexusMods.Abstractions.NexusWebApi;
 using NexusMods.Abstractions.NexusWebApi.Types;
 using NexusMods.Abstractions.UI.Extensions;
 using NexusMods.App.UI.Controls;
+using NexusMods.App.UI.Controls.MarkdownRenderer;
 using NexusMods.App.UI.Controls.Navigation;
 using NexusMods.App.UI.Extensions;
 using NexusMods.App.UI.Overlays;
@@ -27,7 +27,6 @@ using NexusMods.Collections;
 using NexusMods.CrossPlatform.Process;
 using NexusMods.Icons;
 using NexusMods.MnemonicDB.Abstractions;
-using NexusMods.MnemonicDB.Abstractions.Query;
 using NexusMods.Networking.NexusWebApi;
 using NexusMods.Paths;
 using OneOf;
@@ -38,6 +37,7 @@ using Observable = System.Reactive.Linq.Observable;
 using ReactiveCommand = R3.ReactiveCommand;
 
 namespace NexusMods.App.UI.Pages.CollectionDownload;
+using CollectionDownloadEntity = NexusMods.Abstractions.NexusModsLibrary.Models.CollectionDownload;
 
 public sealed class CollectionDownloadViewModel : APageViewModel<ICollectionDownloadViewModel>, ICollectionDownloadViewModel
 {
@@ -57,7 +57,6 @@ public sealed class CollectionDownloadViewModel : APageViewModel<ICollectionDown
     {
         _serviceProvider = serviceProvider;
         var connection = serviceProvider.GetRequiredService<IConnection>();
-        var nexusModsDataProvider = serviceProvider.GetRequiredService<NexusModsDataProvider>();
         var mappingCache = serviceProvider.GetRequiredService<IGameDomainToGameIdMappingCache>();
         var osInterop = serviceProvider.GetRequiredService<IOSInterop>();
         var nexusModsLibrary = serviceProvider.GetRequiredService<NexusModsLibrary>();
@@ -80,7 +79,7 @@ public sealed class CollectionDownloadViewModel : APageViewModel<ICollectionDown
         TabTitle = _collection.Name;
         TabIcon = IconValues.CollectionsOutline;
 
-        TreeDataGridAdapter = new CollectionDownloadTreeDataGridAdapter(nexusModsDataProvider, revisionMetadata, targetLoadout);
+        TreeDataGridAdapter = new CollectionDownloadTreeDataGridAdapter(serviceProvider, revisionMetadata, targetLoadout);
         TreeDataGridAdapter.ViewHierarchical.Value = false;
 
         RequiredDownloadsCount = CollectionDownloader.CountItems(_revision, CollectionDownloader.ItemType.Required);
@@ -89,8 +88,15 @@ public sealed class CollectionDownloadViewModel : APageViewModel<ICollectionDown
         CommandDownloadRequiredItems = _isDownloadingRequiredItems.CombineLatest(_canDownloadRequiredItems, static (isDownloading, canDownload) => !isDownloading && canDownload).ToReactiveCommand<Unit>(
             executeAsync: async (_, cancellationToken) =>
             {
-                if (loginManager.IsPremium) await collectionDownloader.DownloadItems(_revision, itemType: CollectionDownloader.ItemType.Required, db: connection.Db, cancellationToken: cancellationToken);
-                else overlayController.Enqueue(serviceProvider.GetRequiredService<IUpgradeToPremiumViewModel>());
+                if (!await loginManager.EnsureLoggedIn( "Download Collection",cancellationToken)) return;
+                
+                if (!loginManager.IsPremium)
+                {
+                    overlayController.Enqueue(serviceProvider.GetRequiredService<IUpgradeToPremiumViewModel>());
+                    return;
+                }
+   
+                await collectionDownloader.DownloadItems(_revision, itemType: CollectionDownloader.ItemType.Required, db: connection.Db, cancellationToken: cancellationToken);
             },
             awaitOperation: AwaitOperation.Drop,
             configureAwait: false
@@ -106,8 +112,16 @@ public sealed class CollectionDownloadViewModel : APageViewModel<ICollectionDown
             configureAwait: false
         );
 
-        // TODO: implement this button
-        CommandInstallOptionalItems = IsInstalling.CombineLatest(_canInstallOptionalItems, static (isInstalling, canInstall) => !isInstalling && canInstall).ToReactiveCommand<Unit>();
+        CommandInstallOptionalItems = IsInstalling.CombineLatest(_canInstallOptionalItems, static (isInstalling, canInstall) => !isInstalling && canInstall).ToReactiveCommand<Unit>(executeAsync: async (_, _) => { await InstallCollectionJob.Create(
+                serviceProvider,
+                targetLoadout,
+                source: libraryFile,
+                revisionMetadata,
+                items: CollectionDownloader.GetItems(revisionMetadata, CollectionDownloader.ItemType.Optional)
+            ); },
+            awaitOperation: AwaitOperation.Drop,
+            configureAwait: false
+        );
 
         CommandInstallRequiredItems = IsInstalling.CombineLatest(_canInstallRequiredItems, static (isInstalling, canInstall) => !isInstalling && canInstall).ToReactiveCommand<Unit>(
             executeAsync: async (_, _) => { await InstallCollectionJob.Create(
@@ -264,6 +278,9 @@ public sealed class CollectionDownloadViewModel : APageViewModel<ICollectionDown
             var isCollectionInstalledObservable = collectionDownloader
                 .IsCollectionInstalledObservable(_revision, collectionGroupObservable)
                 .Prepend(false);
+            var hasInstalledAllOptionalItems = collectionDownloader
+                .IsCollectionInstalledObservable(_revision, collectionGroupObservable, CollectionDownloader.ItemType.Optional)
+                .Prepend(false);
 
             numDownloadedRequiredItemsObservable.CombineLatest(isCollectionInstalledObservable)
                 .OnUI()
@@ -295,13 +312,16 @@ public sealed class CollectionDownloadViewModel : APageViewModel<ICollectionDown
                 }).AddTo(disposables);
 
             numDownloadedOptionalItemsObservable
+                .CombineLatest(hasInstalledAllOptionalItems)
                 .OnUI()
-                .Subscribe(numDownloadedOptionalItems =>
+                .Subscribe(tuple =>
                 {
+                    var (numDownloadedOptionalItems, hasInstalledAllOptionals) = tuple;
                     var hasDownloadedAllOptionalItems = numDownloadedOptionalItems == OptionalDownloadsCount;
-
+                    
                     CountDownloadedOptionalItems = numDownloadedOptionalItems;
-                    _canInstallOptionalItems.OnNext(numDownloadedOptionalItems > 0);
+                    HasInstalledAllOptionalItems.Value = hasInstalledAllOptionals;
+                    _canInstallOptionalItems.OnNext(hasDownloadedAllOptionalItems && !hasInstalledAllOptionals);
                     _canDownloadOptionalItems.OnNext(!hasDownloadedAllOptionalItems);
                 }).AddTo(disposables);
 
@@ -323,12 +343,12 @@ public sealed class CollectionDownloadViewModel : APageViewModel<ICollectionDown
             TreeDataGridAdapter.MessageSubject.SubscribeAwait(
                 onNextAsync: (message, cancellationToken) =>
                 {
-                    return message.Match(
-                        f0: download => download.Item.Match(
-                            f0: x => collectionDownloader.Download(x, cancellationToken),
-                            f1: x => collectionDownloader.Download(x, cancellationToken)
-                        ),
-                        f1: install => InstallItem(install.Item, cancellationToken)
+                    return message.Match<ValueTask>(
+                        f0: installMessage => InstallItem(installMessage.DownloadEntity, cancellationToken),
+                        f1: downloadNexusMods => collectionDownloader.Download(downloadNexusMods.DownloadEntity, cancellationToken),
+                        f2: downloadExternal => collectionDownloader.Download(downloadExternal.DownloadEntity, cancellationToken),
+                        f3: async manualDownloadOpenUri => await osInterop.OpenUrl(manualDownloadOpenUri.DownloadEntity.Uri, cancellationToken: cancellationToken),
+                        f4: manualDownloadAddFile => AddManualFile(manualDownloadAddFile.DownloadEntity, cancellationToken)
                     );
                 },
                 awaitOperation: AwaitOperation.Parallel,
@@ -342,9 +362,45 @@ public sealed class CollectionDownloadViewModel : APageViewModel<ICollectionDown
                 .Subscribe(this, static (newerRevisions, self) =>
                 {
                     self.IsUpdateAvailable.Value = newerRevisions.Length > 0;
-                    self.NewestRevisionNumber.Value = newerRevisions.First();
+                    self.NewestRevisionNumber.Value = newerRevisions.FirstOrOptional(_ => true);
+                }).AddTo(disposables);
+
+            R3.Observable.Return(collectionJsonFile)
+                .ObserveOnThreadPool()
+                .SelectAwait((jsonFile, cancellationToken) => nexusModsLibrary.ParseCollectionJsonFile(jsonFile, cancellationToken))
+                .ObserveOnUIThreadDispatcher()
+                .Subscribe((this, serviceProvider), static (collectionRoot, state) =>
+                {
+                    var (self, serviceProvider) = state;
+
+                    var collectionInstructionsText = collectionRoot.Info.InstallInstructions;
+
+                    var modsInstructions = collectionRoot.Mods
+                        .Select(static mod => (mod.Name, mod.Instructions, mod.Optional))
+                        .Where(static tuple => !string.IsNullOrWhiteSpace(tuple.Instructions))
+                        .Select(static tuple => new ModInstructions(tuple.Name, tuple.Instructions, tuple.Optional ? CollectionDownloader.ItemType.Optional : CollectionDownloader.ItemType.Required))
+                        .ToArray();
+
+                    var optionalModsInstructions = modsInstructions.Where(static x => x.ItemType == CollectionDownloader.ItemType.Optional).ToArray();
+                    var requiredModsInstructions = modsInstructions.Where(static x => x.ItemType == CollectionDownloader.ItemType.Required).ToArray();
+
+                    if (!string.IsNullOrWhiteSpace(collectionInstructionsText))
+                    {
+                        var markdownRendererViewModel = serviceProvider.GetRequiredService<IMarkdownRendererViewModel>();
+                        markdownRendererViewModel.Contents = collectionInstructionsText;
+                        self.InstructionsRenderer = markdownRendererViewModel;
+                    }
+
+                    self.RequiredModsInstructions = requiredModsInstructions;
+                    self.OptionalModsInstructions = optionalModsInstructions;
                 }).AddTo(disposables);
         });
+    }
+
+    private ValueTask AddManualFile(CollectionDownloadExternal.ReadOnly downloadEntity, CancellationToken cancellationToken)
+    {
+        // TODO:
+        return ValueTask.CompletedTask;
     }
 
     private async ValueTask InstallItem(NexusMods.Abstractions.NexusModsLibrary.Models.CollectionDownload.ReadOnly download, CancellationToken cancellationToken)
@@ -362,6 +418,8 @@ public sealed class CollectionDownloadViewModel : APageViewModel<ICollectionDown
     }
 
     public BindableReactiveProperty<bool> IsInstalled { get; } = new(value: false);
+    
+    public BindableReactiveProperty<bool> HasInstalledAllOptionalItems { get; } = new(value: false);
 
     private readonly BehaviorSubject<bool> _canDownloadRequiredItems = new(initialValue: false);
     private readonly BehaviorSubject<bool> _canDownloadOptionalItems = new(initialValue: false);
@@ -389,6 +447,10 @@ public sealed class CollectionDownloadViewModel : APageViewModel<ICollectionDown
     public CollectionSlug Slug => _collection.Slug;
     public RevisionNumber RevisionNumber => _revision.RevisionNumber;
 
+    [Reactive] public IMarkdownRendererViewModel? InstructionsRenderer { get; set; }
+    [Reactive] public ModInstructions[] RequiredModsInstructions { get; set; } = [];
+    [Reactive] public ModInstructions[] OptionalModsInstructions { get; set; } = [];
+
     public int RequiredDownloadsCount { get; }
     public int OptionalDownloadsCount { get; }
     [Reactive] public int CountDownloadedOptionalItems { get; private set; }
@@ -414,40 +476,39 @@ public sealed class CollectionDownloadViewModel : APageViewModel<ICollectionDown
     public ReactiveCommand<Unit> CommandDeleteCollectionRevision { get; }
 }
 
-public record DownloadMessage(DownloadableItem Item);
+public readonly record struct InstallMessage(CollectionDownloadEntity.ReadOnly DownloadEntity);
+public readonly record struct DownloadNexusModsMessage(CollectionDownloadNexusMods.ReadOnly DownloadEntity);
+public readonly record struct DownloadExternalMessage(CollectionDownloadExternal.ReadOnly DownloadEntity);
+public readonly record struct ManualDownloadOpenUri(CollectionDownloadExternal.ReadOnly DownloadEntity);
+public readonly record struct ManualDownloadAddFile(CollectionDownloadExternal.ReadOnly DownloadEntity);
 
-public record InstallMessage(NexusMods.Abstractions.NexusModsLibrary.Models.CollectionDownload.ReadOnly Item);
-
-public class Message : OneOfBase<DownloadMessage, InstallMessage>
+public class CollectionDownloadTreeDataGridAdapter :
+    TreeDataGridAdapter<CompositeItemModel<EntityId>, EntityId>,
+    ITreeDataGirdMessageAdapter<OneOf<InstallMessage, DownloadNexusModsMessage, DownloadExternalMessage, ManualDownloadOpenUri, ManualDownloadAddFile>>
 {
-    public Message(OneOf<DownloadMessage, InstallMessage> input) : base(input) { }
-}
-
-public class CollectionDownloadTreeDataGridAdapter : TreeDataGridAdapter<ILibraryItemModel, EntityId>,
-    ITreeDataGirdMessageAdapter<Message>
-{
-    private readonly NexusModsDataProvider _nexusModsDataProvider;
     private readonly CollectionRevisionMetadata.ReadOnly _revisionMetadata;
     private readonly LoadoutId _targetLoadout;
+    private readonly CollectionDataProvider _collectionDataProvider;
 
-    public Subject<Message> MessageSubject { get; } = new();
     public R3.ReactiveProperty<CollectionDownloadsFilter> Filter { get; } = new(value: CollectionDownloadsFilter.OnlyRequired);
 
-    private readonly Dictionary<ILibraryItemModel, IDisposable> _commandDisposables = new();
+    public Subject<OneOf<InstallMessage, DownloadNexusModsMessage, DownloadExternalMessage, ManualDownloadOpenUri, ManualDownloadAddFile>> MessageSubject { get; } = new();
+
     private readonly IDisposable _activationDisposable;
+    private readonly Dictionary<CompositeItemModel<EntityId>, IDisposable> _commandDisposables = new();
 
     public CollectionDownloadTreeDataGridAdapter(
-        NexusModsDataProvider nexusModsDataProvider,
+        IServiceProvider serviceProvider,
         CollectionRevisionMetadata.ReadOnly revisionMetadata,
         LoadoutId targetLoadout)
     {
-        _nexusModsDataProvider = nexusModsDataProvider;
         _revisionMetadata = revisionMetadata;
         _targetLoadout = targetLoadout;
+        _collectionDataProvider = serviceProvider.GetRequiredService<CollectionDataProvider>();
 
-        _activationDisposable = this.WhenActivated(static (adapter, disposables) =>
+        _activationDisposable = this.WhenActivated(static (self, disposables) =>
         {
-            Disposable.Create(adapter._commandDisposables, static commandDisposables =>
+            Disposable.Create(self._commandDisposables,static commandDisposables =>
             {
                 foreach (var kv in commandDisposables)
                 {
@@ -460,62 +521,91 @@ public class CollectionDownloadTreeDataGridAdapter : TreeDataGridAdapter<ILibrar
         });
     }
 
-    protected override void BeforeModelActivationHook(ILibraryItemModel model)
+    protected override IObservable<IChangeSet<CompositeItemModel<EntityId>, EntityId>> GetRootsObservable(bool viewHierarchical)
     {
-        if (model is ILibraryItemWithDownloadAction withDownloadAction)
-        {
-            var disposable = withDownloadAction.DownloadItemCommand.Subscribe(MessageSubject, static (downloadableItem, subject) =>
-            {
-                var payload = new DownloadMessage(downloadableItem);
-                subject.OnNext(new Message(payload));
-            });
+        return _collectionDataProvider.ObserveCollectionItems(_revisionMetadata, Filter.AsSystemObservable(), _targetLoadout);
+    }
 
-            var didAdd = _commandDisposables.TryAdd(model, disposable);
-            Debug.Assert(didAdd, "subscription for the model shouldn't exist yet");
-        } else if (model is NexusModsFileMetadataLibraryItemModel.Installable withInstallAction)
-        {
-            var disposable = withInstallAction.InstallItemCommand.Subscribe((MessageSubject, withInstallAction), static (_, state) =>
-            {
-                var (subject, withInstallAction) = state;
-                subject.OnNext(new Message(new InstallMessage(withInstallAction.Download.AsCollectionDownload())));
-            });
-
-            var didAdd = _commandDisposables.TryAdd(model, disposable);
-            Debug.Assert(didAdd, "subscription for the model shouldn't exist yet");
-        }
-
+    protected override void BeforeModelActivationHook(CompositeItemModel<EntityId> model)
+    {
         base.BeforeModelActivationHook(model);
+
+        var installActionDisposable = model.SubscribeToComponent<CollectionComponents.InstallAction, CollectionDownloadTreeDataGridAdapter>(
+            key: CollectionColumns.Actions.InstallComponentKey,
+            state: this,
+            factory: static (self, _, component) => component.CommandInstall.Subscribe(self, static (downloadEntity, self) =>
+            {
+                self.MessageSubject.OnNext(new InstallMessage(downloadEntity));
+            })
+        );
+
+        var downloadNexusModsActionDisposable = model.SubscribeToComponent<CollectionComponents.NexusModsDownloadAction, CollectionDownloadTreeDataGridAdapter>(
+            key: CollectionColumns.Actions.NexusModsDownloadComponentKey,
+            state: this,
+            factory: static (self, _, component) => component.CommandDownload.Subscribe(self, static (downloadEntity, self) =>
+            {
+                self.MessageSubject.OnNext(new DownloadNexusModsMessage(downloadEntity));
+            })
+        );
+
+        var downloadExternalActionDisposable = model.SubscribeToComponent<CollectionComponents.ExternalDownloadAction, CollectionDownloadTreeDataGridAdapter>(
+            key: CollectionColumns.Actions.ExternalDownloadComponentKey,
+            state: this,
+            factory: static (self, _, component) => component.CommandDownload.Subscribe(self, static (downloadEntity, self) =>
+            {
+                self.MessageSubject.OnNext(new DownloadExternalMessage(downloadEntity));
+            })
+        );
+
+        var downloadManualActionDisposable = model.SubscribeToComponent<CollectionComponents.ManualDownloadAction, CollectionDownloadTreeDataGridAdapter>(
+            key: CollectionColumns.Actions.ManualDownloadComponentKey,
+            state: this,
+            factory: static (self, _, component) =>
+            {
+                var a = component.CommandOpenUri.Subscribe(self, static (downloadEntity, self) =>
+                {
+                    self.MessageSubject.OnNext(new ManualDownloadOpenUri(downloadEntity));
+                });
+
+                var b = component.CommandOpenUri.Subscribe(self, static (downloadEntity, self) =>
+                {
+                    self.MessageSubject.OnNext(new ManualDownloadAddFile(downloadEntity));
+                });
+
+                return Disposable.Combine(a, b);
+            }
+        );
+
+        var disposable = Disposable.Combine(installActionDisposable, downloadNexusModsActionDisposable, downloadExternalActionDisposable, downloadManualActionDisposable);
+
+        var didAdd = _commandDisposables.TryAdd(model, disposable);
+        Debug.Assert(didAdd, "subscription for the model shouldn't exist yet");
     }
 
-    protected override void BeforeModelDeactivationHook(ILibraryItemModel model)
+    protected override void BeforeModelDeactivationHook(CompositeItemModel<EntityId> model)
     {
-        if (model is ILibraryItemWithAction)
-        {
-            var didRemove = _commandDisposables.Remove(model, out var disposable);
-            Debug.Assert(didRemove, "subscription for the model should exist");
-            disposable?.Dispose();
-        }
-
         base.BeforeModelDeactivationHook(model);
+
+        var didRemove = _commandDisposables.Remove(model, out var disposable);
+        Debug.Assert(didRemove, "subscription for the model should exist");
+        disposable?.Dispose();
     }
 
-    protected override IObservable<IChangeSet<ILibraryItemModel, EntityId>> GetRootsObservable(bool viewHierarchical)
+    protected override IColumn<CompositeItemModel<EntityId>>[] CreateColumns(bool viewHierarchical)
     {
-        return _nexusModsDataProvider.ObserveCollectionItems(_revisionMetadata, Filter.AsSystemObservable(), _targetLoadout);
-    }
+        var nameColumn = ColumnCreator.Create<EntityId, SharedColumns.Name>();
 
-    protected override IColumn<ILibraryItemModel>[] CreateColumns(bool viewHierarchical)
-    {
         return
         [
-            ColumnCreator.CreateColumn<ILibraryItemModel, ILibraryItemWithThumbnailAndName>(),
-            ColumnCreator.CreateColumn<ILibraryItemModel, ILibraryItemWithVersion>(),
-            ColumnCreator.CreateColumn<ILibraryItemModel, ILibraryItemWithSize>(),
-            ColumnCreator.CreateColumn<ILibraryItemModel, ILibraryItemWithAction>(),
+            viewHierarchical ? ITreeDataGridItemModel<CompositeItemModel<EntityId>, EntityId>.CreateExpanderColumn(nameColumn) : nameColumn,
+            ColumnCreator.Create<EntityId, LibraryColumns.ItemVersion>(),
+            ColumnCreator.Create<EntityId, LibraryColumns.ItemSize>(),
+            ColumnCreator.Create<EntityId, CollectionColumns.Actions>(),
         ];
     }
 
     private bool _isDisposed;
+
     protected override void Dispose(bool disposing)
     {
         if (!_isDisposed)
@@ -531,3 +621,4 @@ public class CollectionDownloadTreeDataGridAdapter : TreeDataGridAdapter<ILibrar
         base.Dispose(disposing);
     }
 }
+

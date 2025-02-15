@@ -22,7 +22,7 @@
 
     <Style Selector="collections|CollectionCardView">
 
-        <Setter Property="Background" Value="{StaticResource SurfaceTranslucentLow}" />
+        <Setter Property="Background" Value="{StaticResource SurfaceMidBrush}" />
         <Setter Property="CornerRadius" Value="{StaticResource Rounded}" />
         <Setter Property="ClipToBounds" Value="False" />
         <Setter Property="Width" Value="508" />
@@ -77,9 +77,8 @@
                             <!-- Margin needed to left offset top and bottom border -->
                             <Setter Property="Margin" Value="12, 0, 0, 0" />
 
-                            <Style Selector="^ > TextBlock">
+                            <Style Selector="^ TextBlock">
                                 <Setter Property="Theme" Value="{StaticResource BodySMNormalTheme}" />
-                                <Setter Property="FontSize" Value="20" />
                                 <Setter Property="Foreground" Value="{StaticResource NeutralModerateBrush}" />
                                 <Setter Property="TextWrapping" Value="NoWrap" />
                                 <Setter Property="TextTrimming" Value="CharacterEllipsis" />

@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using DynamicData.Kernel;
 using JetBrains.Annotations;
@@ -13,7 +12,7 @@ namespace NexusMods.App.UI.Controls;
 /// Item model that allows for composition over inheritance with components.
 /// </summary>
 [PublicAPI]
-public class CompositeItemModel<TKey> : TreeDataGridItemModel<CompositeItemModel<TKey>, TKey>
+public sealed class CompositeItemModel<TKey> : TreeDataGridItemModel<CompositeItemModel<TKey>, TKey>
     where TKey : notnull
 {
     /// <summary>
@@ -52,15 +51,6 @@ public class CompositeItemModel<TKey> : TreeDataGridItemModel<CompositeItemModel
                 var (_, disposables) = tuple;
                 if (change.Value is not IReactiveR3Object reactiveR3Object) return;
                 reactiveR3Object.Activate().AddTo(disposables);
-            }).AddTo(disposables);
-
-            self._components.ObserveDictionaryRemove().ObserveOnUIThreadDispatcher().Subscribe((self, disposables), static (change, tuple) =>
-            {
-                var (_, disposables) = tuple;
-                if (change.Value is not IReactiveR3Object reactiveR3Object) return;
-                // NOTE(erri120): CompositeDisposable.Remove disposes the object
-                var didRemove = disposables.Remove(reactiveR3Object);
-                Debug.Assert(didRemove);
             }).AddTo(disposables);
         });
     }
@@ -141,6 +131,62 @@ public class CompositeItemModel<TKey> : TreeDataGridItemModel<CompositeItemModel
         _observableSubscriptions.Add(key, disposable);
     }
 
+    public void AddObservable<TComponent>(
+        ComponentKey key,
+        Observable<bool> shouldAddObservable,
+        Func<TComponent> componentFactory,
+        bool subscribeImmediately = false)
+        where TComponent : class, IItemModelComponent<TComponent>, IComparable<TComponent>
+    {
+        IDisposable disposable;
+        if (subscribeImmediately)
+        {
+            disposable = SubscribeToObservable(key, shouldAddObservable, componentFactory);
+        }
+        else
+        {
+            // ReSharper disable once NotDisposedResource
+            disposable = this.WhenActivated((key, shouldAddObservable, componentFactory), static (self, tuple, disposables) =>
+            {
+                var (key, shouldAddObservable, componentFactory) = tuple;
+                self.SubscribeToObservable(key, shouldAddObservable, componentFactory).AddTo(disposables);
+            });
+        }
+
+        if (_observableSubscriptions.Remove(key, out var existingDisposable))
+        {
+            existingDisposable.Dispose();
+        }
+
+        _observableSubscriptions.Add(key, disposable);
+    }
+
+    [MustUseReturnValue]
+    private IDisposable SubscribeToObservable<TComponent>(
+        ComponentKey key,
+        Observable<bool> shouldAddObservable,
+        Func<TComponent> componentFactory)
+        where TComponent : class, IItemModelComponent<TComponent>, IComparable<TComponent>
+    {
+        return shouldAddObservable.Subscribe((this, key, componentFactory), static (shouldAdd, tuple) =>
+        {
+            var (self, key, componentFactory) = tuple;
+
+            if (self._components.ContainsKey(key))
+            {
+                if (shouldAdd) return;
+                self.Remove<TComponent>(key);
+            }
+            else
+            {
+                if (!shouldAdd) return;
+                var component = componentFactory();
+
+                self.Add(key, component);
+            }
+        });
+    }
+
     [MustUseReturnValue]
     private IDisposable SubscribeToObservable<TComponent, T>(
         ComponentKey key,
@@ -163,9 +209,9 @@ public class CompositeItemModel<TKey> : TreeDataGridItemModel<CompositeItemModel
                 if (!optionalValue.HasValue) return;
                 var component = componentFactory(
                     observable
-                        .ObserveOnUIThreadDispatcher()
                         .Where(static optionalValue => optionalValue.HasValue)
-                        .Select(static optionalValue => optionalValue.Value),
+                        .Select(static optionalValue => optionalValue.Value)
+                        .ObserveOnUIThreadDispatcher(),
                     optionalValue.Value
                 );
 

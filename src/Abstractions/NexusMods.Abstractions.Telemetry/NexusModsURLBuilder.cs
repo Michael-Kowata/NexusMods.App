@@ -1,6 +1,7 @@
 using JetBrains.Annotations;
 using Microsoft.AspNetCore.WebUtilities;
 using NexusMods.Abstractions.NexusWebApi.Types;
+using NexusMods.Abstractions.NexusWebApi.Types.V2;
 
 namespace NexusMods.Abstractions.Telemetry;
 
@@ -46,6 +47,18 @@ public static class NexusModsUrlBuilder
     /// Use this method if you have a generic URL to Nexus Mods.
     /// </remarks>
     public static Uri CreateGenericUri(string baseUrl) => CreateUri(baseUrl);
+
+    /// <summary>
+    /// Creates a Uri that sends the user to the website to download a file.
+    /// This file will be installed via the NXM handler.
+    /// </summary>
+    /// <param name="fileId">Unique ID for a mod file associated with a game, <see cref="FileId"/>.</param>
+    /// <param name="gameId">Unique identifier for an individual game hosted on Nexus.</param>
+    /// <param name="withNxm">True if to use nxm handler, else false.</param>
+    public static Uri CreateModFileDownloadUri(FileId fileId, GameId gameId, bool withNxm = true)
+    {
+        return CreateUri($"https://www.nexusmods.com/Core/Libs/Common/Widgets/DownloadPopUp?id={fileId}&game_id={gameId}&nmm={Convert.ToInt32(withNxm)}");
+    }
 
     public static Uri CreateCollectionsUri(GameDomain gameDomain, CollectionSlug collectionSlug) => CreateUri($"https://next.nexusmods.com/{gameDomain}/collections/{collectionSlug}", campaign: "collections");
 

@@ -3,8 +3,10 @@ using DynamicData.Kernel;
 using NexusMods.Abstractions.Jobs;
 using NexusMods.Abstractions.NexusModsLibrary.Models;
 using NexusMods.Abstractions.NexusWebApi.Types;
+using NexusMods.App.UI.Controls.MarkdownRenderer;
 using NexusMods.App.UI.Controls.Navigation;
 using NexusMods.App.UI.WorkspaceSystem;
+using NexusMods.Collections;
 using NexusMods.Paths;
 using R3;
 
@@ -37,6 +39,10 @@ public interface ICollectionDownloadViewModel : IPageViewModelInterface
 
     /// <inheritdoc cref="CollectionRevisionMetadata.IsAdult"/>
     bool IsAdult { get; }
+
+    IMarkdownRendererViewModel? InstructionsRenderer { get; }
+    ModInstructions[] RequiredModsInstructions { get; }
+    ModInstructions[] OptionalModsInstructions { get; }
 
     /// <summary>
     /// The collection's revision number
@@ -93,6 +99,7 @@ public interface ICollectionDownloadViewModel : IPageViewModelInterface
     BindableReactiveProperty<bool> IsInstalling { get; }
     BindableReactiveProperty<bool> IsDownloading { get; }
     BindableReactiveProperty<bool> IsUpdateAvailable { get; }
+    BindableReactiveProperty<bool> HasInstalledAllOptionalItems { get; }
     BindableReactiveProperty<Optional<RevisionNumber>> NewestRevisionNumber { get; }
 
     ReactiveCommand<NavigationInformation> CommandViewCollection { get; }
@@ -109,3 +116,5 @@ public interface ICollectionDownloadViewModel : IPageViewModelInterface
     ReactiveCommand<Unit> CommandDeleteAllDownloads { get; }
     ReactiveCommand<Unit> CommandDeleteCollectionRevision { get; }
 }
+
+public record ModInstructions(string ModName, string Instructions, CollectionDownloader.ItemType ItemType);

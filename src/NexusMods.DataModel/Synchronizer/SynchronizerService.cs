@@ -1,8 +1,8 @@
-﻿using System.Collections.Concurrent;
-using System.Reactive.Linq;
+﻿using System.Reactive.Linq;
 using Microsoft.Extensions.Logging;
 using NexusMods.Abstractions.GameLocators;
 using NexusMods.Abstractions.Games;
+using NexusMods.Abstractions.Games.FileHashes;
 using NexusMods.Abstractions.Loadouts;
 using NexusMods.Abstractions.Loadouts.Files.Diff;
 using NexusMods.Abstractions.Loadouts.Exceptions;
@@ -10,6 +10,7 @@ using NexusMods.Abstractions.Loadouts.Ids;
 using NexusMods.MnemonicDB.Abstractions;
 using NexusMods.Paths;
 using ReactiveUI;
+using R3;
 
 namespace NexusMods.DataModel.Synchronizer;
 
@@ -27,13 +28,14 @@ public class SynchronizerService : ISynchronizerService
     /// <summary>
     /// DI Constructor
     /// </summary>
-    public SynchronizerService(IConnection conn, ILogger<SynchronizerService> logger, IGameRegistry gameRegistry)
+    public SynchronizerService(IConnection conn, ILogger<SynchronizerService> logger, IGameRegistry gameRegistry, IFileHashesService fileHashesService)
     {
         _logger = logger;
         _conn = conn;
         _gameRegistry = gameRegistry;
         _gameStates = _gameRegistry.Installations.ToDictionary(e => e.Key, _ => new SynchronizerState());
         _loadoutStates = Loadout.All(conn.Db).ToDictionary(e => e.LoadoutId, _ => new SynchronizerState());
+        _fileHashesService = fileHashesService;
     }
     
     /// <inheritdoc />
@@ -135,8 +137,9 @@ public class SynchronizerService : ISynchronizerService
             .Select(e => e.Value ? GameSynchronizerState.Busy : GameSynchronizerState.Idle);
     } 
     
-    private readonly Dictionary<LoadoutId, IObservable<LoadoutSynchronizerState>> _statusObservables = new();
+    private readonly Dictionary<LoadoutId, Observable<LoadoutSynchronizerState>> _statusObservables = new();
     private readonly SemaphoreSlim _statusSemaphore = new(1, 1);
+    private readonly IFileHashesService _fileHashesService;
 
     /// <inheritdoc />
     public async Task<IObservable<LoadoutSynchronizerState>> StatusForLoadout(LoadoutId loadoutId)
@@ -145,11 +148,11 @@ public class SynchronizerService : ISynchronizerService
         try
         {
             // This observable may perform heavy diffing operation, so it needs to be shared between all subscribers
-            if (_statusObservables.TryGetValue(loadoutId, out var observable)) return observable;
+            if (_statusObservables.TryGetValue(loadoutId, out var observable)) return observable.AsSystemObservable();
 
             observable = CreateStatusObservable(loadoutId);
             _statusObservables[loadoutId] = observable;
-            return observable;
+            return observable.AsSystemObservable();
         }
         finally
         {
@@ -157,31 +160,36 @@ public class SynchronizerService : ISynchronizerService
         }
     }
 
-    private IObservable<LoadoutSynchronizerState> CreateStatusObservable(LoadoutId loadoutId)
+    private Observable<LoadoutSynchronizerState> CreateStatusObservable(LoadoutId loadoutId)
     {
         var loadout = Loadout.Load(_conn.Db, loadoutId);
         var loadoutState = GetOrAddLoadoutState(loadoutId);
 
-        var isBusy = loadoutState.ObservableForProperty(l => l.Busy, skipInitial: false)
-            .Select(e => e.Value);
+        var isBusy = loadoutState.ObservePropertyChanged(l => l.Busy);
 
         var lastApplied = LastAppliedRevisionFor(loadout.InstallationInstance)
+            .ToObservable()
             .Where(last => last != default(LoadoutWithTxId));
 
         var revisions = Loadout.RevisionsWithChildUpdates(_conn, loadoutId)
+            .ToObservable()
             // Use DB transaction, since child updates are not part of the loadout
-            .Select(rev => (loadout:rev, revDbTx:_conn.Db.BasisTxId));
+            .Select(rev => (loadout: rev, revDbTx: _conn.Db.BasisTxId));
 
-        var statusObservable = Observable.CombineLatest(isBusy,
-                lastApplied,
+        var statusObservable = isBusy.CombineLatest(lastApplied,
                 revisions,
                 (busy, last, rev) => (busy, last, rev.loadout, rev.revDbTx)
             )
+            
             .DistinctUntilChanged()
-            .SelectMany(
-                async tuple =>
+            .SelectAwait(
+                async (tuple, cancellationToken) =>
                 {
+                    // To make sure the DB is loaded, before we start diffing
+                    await _fileHashesService.GetFileHashesDb();
+                 
                     var (busy, last, rev, revDbTx) = tuple;
+                    
                     // if the loadout is not found, it means it was deleted
                     if (!rev.IsValid())
                         return LoadoutSynchronizerState.OtherLoadoutSynced;
@@ -189,25 +197,26 @@ public class SynchronizerService : ISynchronizerService
                     if (busy)
                         return LoadoutSynchronizerState.Pending;
 
+                    if (last.Id != loadoutId)
+                        return LoadoutSynchronizerState.OtherLoadoutSynced;
+
                     // Last DB revision is the same in the applied loadout
                     if (last.Id == rev.LoadoutId && revDbTx == last.Tx)
                         return LoadoutSynchronizerState.Current;
 
-                    if (last.Id != loadoutId)
-                        return LoadoutSynchronizerState.OtherLoadoutSynced;
-
                     // Potentially long operation, run on thread pool
                     var diffFound = await Task.Run(() =>
-                    {
-                        _logger.LogTrace("Checking for changes in loadout {LoadoutId}", loadoutId);
-                        var diffTree = GetApplyDiffTree(loadoutId);
-                        var diffFound = diffTree.GetAllDescendentFiles().Any(f => f.Item.Value.ChangeType != FileChangeType.None);
-                        _logger.LogTrace("Changes found in loadout {LoadoutId}: {DiffFound}", loadoutId, diffFound);
-                        return diffFound;
-                    });
+                        {
+                            _logger.LogTrace("Checking for changes in loadout {LoadoutId}", loadoutId);
+                            var diffTree = GetApplyDiffTree(loadoutId);
+                            var diffFound = diffTree.GetAllDescendentFiles().Any(f => f.Item.Value.ChangeType != FileChangeType.None);
+                            _logger.LogTrace("Changes found in loadout {LoadoutId}: {DiffFound}", loadoutId, diffFound);
+                            return diffFound;
+                        }, cancellationToken);
 
                     return diffFound ? LoadoutSynchronizerState.NeedsSync : LoadoutSynchronizerState.Current;
-                }
+                },
+                awaitOperation: AwaitOperation.ThrottleFirstLast
             )
             .Replay(1)
             .RefCount();

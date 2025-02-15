@@ -123,7 +123,7 @@ namespace NexusMods.App.UI.Resources {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Apply.
+        ///   Looks up a localized string similar to APPLY.
         /// </summary>
         public static string ApplyControlViewModel__APPLY {
             get {
@@ -241,6 +241,42 @@ namespace NexusMods.App.UI.Resources {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Download all optional mods.
+        /// </summary>
+        public static string CollectionDownloadViewModel_DownloadOptional {
+            get {
+                return ResourceManager.GetString("CollectionDownloadViewModel_DownloadOptional", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Download all required mods.
+        /// </summary>
+        public static string CollectionDownloadViewModel_DownloadRequired {
+            get {
+                return ResourceManager.GetString("CollectionDownloadViewModel_DownloadRequired", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Install Collection.
+        /// </summary>
+        public static string CollectionDownloadViewModel_InstallCollection {
+            get {
+                return ResourceManager.GetString("CollectionDownloadViewModel_InstallCollection", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Install downloaded optional mods.
+        /// </summary>
+        public static string CollectionDownloadViewModel_InstallOptional {
+            get {
+                return ResourceManager.GetString("CollectionDownloadViewModel_InstallOptional", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to {0} of {1} required mods downloaded.
         /// </summary>
         public static string CollectionDownloadViewModel_Num_required_mods_downloaded {
@@ -255,6 +291,24 @@ namespace NexusMods.App.UI.Resources {
         public static string CollectionDownloadViewModel_Ready_to_install {
             get {
                 return ResourceManager.GetString("CollectionDownloadViewModel_Ready_to_install", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Install Update.
+        /// </summary>
+        public static string CollectionDownloadViewModel_UpdateCollection {
+            get {
+                return ResourceManager.GetString("CollectionDownloadViewModel_UpdateCollection", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to View Installed Collection.
+        /// </summary>
+        public static string CollectionDownloadViewModel_ViewCollection {
+            get {
+                return ResourceManager.GetString("CollectionDownloadViewModel_ViewCollection", resourceCulture);
             }
         }
         
@@ -363,6 +417,24 @@ namespace NexusMods.App.UI.Resources {
         public static string DiagnosticListView_EmptyState_Subtitle {
             get {
                 return ResourceManager.GetString("DiagnosticListView.EmptyState.Subtitle", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Review your Loadout for any issues and learn how to resolve them if needed.
+        /// </summary>
+        public static string DiagnosticListView_Page_Description {
+            get {
+                return ResourceManager.GetString("DiagnosticListView.Page_Description", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Health Check.
+        /// </summary>
+        public static string DiagnosticListView_Page_Title {
+            get {
+                return ResourceManager.GetString("DiagnosticListView.Page_Title", resourceCulture);
             }
         }
         
@@ -836,6 +908,15 @@ namespace NexusMods.App.UI.Resources {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Update All.
+        /// </summary>
+        public static string FileOriginPage_UpdateAll {
+            get {
+                return ResourceManager.GetString("FileOriginPage_UpdateAll", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Add.
         /// </summary>
         public static string FileOriginsPage_AddButtonText {
@@ -1286,7 +1367,7 @@ namespace NexusMods.App.UI.Resources {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Play.
+        ///   Looks up a localized string similar to PLAY.
         /// </summary>
         public static string LaunchButtonViewModel_LaunchGame_LAUNCH {
             get {
@@ -1295,11 +1376,20 @@ namespace NexusMods.App.UI.Resources {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Running....
+        ///   Looks up a localized string similar to GAME RUNNING....
         /// </summary>
         public static string LaunchButtonViewModel_LaunchGame_RUNNING {
             get {
                 return ResourceManager.GetString("LaunchButtonViewModel_LaunchGame_RUNNING", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Click to launch the game.
+        /// </summary>
+        public static string LaunchButtonViewModel_LaunchGame_ToolTip {
+            get {
+                return ResourceManager.GetString("LaunchButtonViewModel_LaunchGame_ToolTip", resourceCulture);
             }
         }
         
@@ -1318,6 +1408,33 @@ namespace NexusMods.App.UI.Resources {
         public static string LeftMenu_Label_Utilities {
             get {
                 return ResourceManager.GetString("LeftMenu_Label_Utilities", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Download all.
+        /// </summary>
+        public static string LibraryItemButtonUpdate_All {
+            get {
+                return ResourceManager.GetString("LibraryItemButtonUpdate_All", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Download update ({0}).
+        /// </summary>
+        public static string LibraryItemButtonUpdate_CounterInBracket {
+            get {
+                return ResourceManager.GetString("LibraryItemButtonUpdate_CounterInBracket", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Download update.
+        /// </summary>
+        public static string LibraryItemButtonUpdate_Single {
+            get {
+                return ResourceManager.GetString("LibraryItemButtonUpdate_Single", resourceCulture);
             }
         }
         
@@ -1538,6 +1655,24 @@ namespace NexusMods.App.UI.Resources {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to External Changes.
+        /// </summary>
+        public static string LoadoutLeftMenuViewModel_External_Changes {
+            get {
+                return ResourceManager.GetString("LoadoutLeftMenuViewModel_External_Changes", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Review, remove, or restore changes made outside the app..
+        /// </summary>
+        public static string LoadoutLeftMenuViewModel_External_Changes_ToolTip {
+            get {
+                return ResourceManager.GetString("LoadoutLeftMenuViewModel_External_Changes_ToolTip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Health Check.
         /// </summary>
         public static string LoadoutLeftMenuViewModel_LoadoutLeftMenuViewModel_Diagnostics {
@@ -1597,6 +1732,15 @@ namespace NexusMods.App.UI.Resources {
         public static string LoginMessageView_Title {
             get {
                 return ResourceManager.GetString("LoginMessageView_Title", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Max panels reached.
+        /// </summary>
+        public static string MaxPanelsAddedToolTip {
+            get {
+                return ResourceManager.GetString("MaxPanelsAddedToolTip", resourceCulture);
             }
         }
         
@@ -1731,6 +1875,15 @@ namespace NexusMods.App.UI.Resources {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Add games to get started.
+        /// </summary>
+        public static string MyGamesView__Page_Description {
+            get {
+                return ResourceManager.GetString("MyGamesView__Page_Description", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Games Added.
         /// </summary>
         public static string MyGamesView__Ready_to_mod {
@@ -1848,6 +2001,15 @@ namespace NexusMods.App.UI.Resources {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to SUPPORTER.
+        /// </summary>
+        public static string Nexus_Premium_Status__Supporter {
+            get {
+                return ResourceManager.GetString("Nexus_Premium_Status__Supporter", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Browser didn&apos;t open automatically?.
         /// </summary>
         public static string NexusLoginOverlayView__BROWSER_DIDNT_OPEN {
@@ -1916,6 +2078,15 @@ namespace NexusMods.App.UI.Resources {
         public static string SettingEntryView_NeedRestartMessage {
             get {
                 return ResourceManager.GetString("SettingEntryView_NeedRestartMessage", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Manage your preferences..
+        /// </summary>
+        public static string SettingsView_Description {
+            get {
+                return ResourceManager.GetString("SettingsView_Description", resourceCulture);
             }
         }
         
@@ -2006,6 +2177,15 @@ namespace NexusMods.App.UI.Resources {
         public static string TopBar_Forward_ToolTip {
             get {
                 return ResourceManager.GetString("TopBar_Forward_ToolTip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Click to give feedback and help us improve..
+        /// </summary>
+        public static string TopBar_GiveFeedback_ToolTip {
+            get {
+                return ResourceManager.GetString("TopBar_GiveFeedback_ToolTip", resourceCulture);
             }
         }
         

@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.Text.Json;
+using DynamicData.Kernel;
 using NexusMods.Abstractions.Collections.Json;
 using NexusMods.Abstractions.Library.Models;
+using NexusMods.Abstractions.MnemonicDB.Attributes;
 using NexusMods.Abstractions.NexusModsLibrary;
 using NexusMods.Abstractions.NexusModsLibrary.Models;
 using NexusMods.Abstractions.NexusWebApi.Types;
@@ -9,13 +11,13 @@ using NexusMods.Abstractions.NexusWebApi.Types.V2;
 using NexusMods.Abstractions.NexusWebApi.Types.V2.Uid;
 using NexusMods.Extensions.BCL;
 using NexusMods.MnemonicDB.Abstractions;
-using NexusMods.MnemonicDB.Abstractions.TxFunctions;
 using NexusMods.Networking.NexusWebApi.Extensions;
 using NexusMods.Paths;
 
 namespace NexusMods.Networking.NexusWebApi;
 using GameIdCache = Dictionary<GameDomain, GameId>;
 using ResolvedEntitiesLookup = Dictionary<UidForFile, ValueTuple<NexusModsModPageMetadataId, NexusModsFileMetadataId>>;
+using ModAndDownload = (Mod Mod, CollectionDownload.ReadOnly Download);
 
 public partial class NexusModsLibrary
 {
@@ -57,7 +59,13 @@ public partial class NexusModsLibrary
         UpdateFiles(db, tx, collectionRevisionEntityId, collectionRevisionInfo, collectionRoot, gameIds, resolvedEntitiesLookup);
 
         var results = await tx.Commit();
-        return CollectionRevisionMetadata.Load(results.Db, results[collectionRevisionEntityId]);
+        var revisionMetadata = CollectionRevisionMetadata.Load(results.Db, results[collectionRevisionEntityId]);
+
+        using var ruleTx = _connection.BeginTransaction();
+        AddCollectionDownloadRules(ruleTx, collectionRoot, revisionMetadata);
+        await ruleTx.Commit();
+
+        return revisionMetadata;
     }
 
     /// <summary>
@@ -105,6 +113,100 @@ public partial class NexusModsLibrary
         return revisionNumbers;
     }
 
+    private static void AddCollectionDownloadRules(
+        ITransaction tx,
+        CollectionRoot collectionRoot,
+        CollectionRevisionMetadata.ReadOnly revisionMetadata)
+    {
+        var collectionDownloads = revisionMetadata.Downloads.ToArray();
+
+        var modsAndDownloads = GatherDownloads(collectionDownloads, collectionRoot);
+
+        var md5ToDownload = modsAndDownloads
+            .Select(static tuple => (tuple.Mod.Source.Md5, tuple.Download))
+            .Where(static tuple => tuple.Md5 != default(Md5HashValue))
+            .DistinctBy(static tuple => tuple.Md5)
+            .ToDictionary(static tuple => tuple.Md5, static tuple => tuple.Download);
+
+        var tagToDownload = modsAndDownloads
+            .Select(static tuple => (tuple.Mod.Source.Tag, tuple.Download))
+            .Where(static tuple => !string.IsNullOrWhiteSpace(tuple.Tag))
+            .DistinctBy(static tuple => tuple.Tag, StringComparer.Ordinal)
+            .ToDictionary(static tuple => tuple.Tag!, static tuple => tuple.Download, StringComparer.Ordinal);
+
+        var fileExpressionToDownload = modsAndDownloads
+            .Select(static tuple => (tuple.Mod.Source.FileExpression, tuple.Download))
+            .Where(static tuple => tuple.FileExpression != default(RelativePath))
+            .Select(static tuple => (FileExpression: tuple.FileExpression.ToString(), tuple.Download))
+            .DistinctBy(static tuple => tuple.FileExpression, StringComparer.Ordinal)
+            .ToDictionary(static tuple => tuple.FileExpression, static tuple => tuple.Download, StringComparer.Ordinal);
+
+        for (var i = 0; i < collectionRoot.ModRules.Length; i++)
+        {
+            var rule = collectionRoot.ModRules[i];
+            var sourceDownload = VortexModReferenceToCollectionDownload(rule.Source, md5ToDownload, tagToDownload, fileExpressionToDownload);
+            var otherDownload = VortexModReferenceToCollectionDownload(rule.Other, md5ToDownload, tagToDownload, fileExpressionToDownload);
+            var ruleType = ToRuleType(rule.Type);
+
+            if (!sourceDownload.HasValue || !otherDownload.HasValue || !ruleType.HasValue) continue;
+
+            _ = new CollectionDownloadRules.New(tx)
+            {
+                SourceId = sourceDownload.Value,
+                OtherId = otherDownload.Value,
+                RuleType = ruleType.Value,
+                ArrayIndex = i,
+            };
+        }
+    }
+
+    private static Optional<CollectionDownloadRuleType> ToRuleType(VortexModRuleType vortexModRuleType)
+    {
+        return vortexModRuleType switch
+        {
+            VortexModRuleType.Before => CollectionDownloadRuleType.Before,
+            VortexModRuleType.After => CollectionDownloadRuleType.After,
+            _ => Optional<CollectionDownloadRuleType>.None,
+        };
+    }
+
+    private static Optional<CollectionDownload.ReadOnly> VortexModReferenceToCollectionDownload(
+        VortexModReference reference,
+        Dictionary<Md5HashValue, CollectionDownload.ReadOnly> md5ToDownload,
+        Dictionary<string, CollectionDownload.ReadOnly> tagToDownload,
+        Dictionary<string, CollectionDownload.ReadOnly> fileExpressionToDownload)
+    {
+        // https://github.com/Nexus-Mods/Vortex/blob/1bc2a0bca27353df617f5a0b0f331cf9d23eea9c/src/extensions/mod_management/util/dependencies.ts#L28-L62
+        // https://github.com/Nexus-Mods/Vortex/blob/1bc2a0bca27353df617f5a0b0f331cf9d23eea9c/src/extensions/mod_management/util/testModReference.ts#L285-L299
+
+        var md5 = reference.FileMD5;
+        if (md5 != default(Md5HashValue) && md5ToDownload.TryGetValue(md5, out var download)) return download;
+
+        var tag = reference.Tag;
+        if (!string.IsNullOrWhiteSpace(tag) && tagToDownload.TryGetValue(tag, out download)) return download;
+
+        var fileExpression = reference.FileExpression;
+        if (!string.IsNullOrWhiteSpace(fileExpression) && fileExpressionToDownload.TryGetValue(fileExpression, out download)) return download;
+
+        return Optional<CollectionDownload.ReadOnly>.None;
+    }
+
+    private static List<ModAndDownload> GatherDownloads(CollectionDownload.ReadOnly[] items, CollectionRoot root)
+    {
+        var map = items.ToDictionary(static download => download.ArrayIndex, static download => download);
+        var list = new List<ModAndDownload>();
+
+        foreach (var kv in map)
+        {
+            var (index, download) = kv;
+            var mod = root.Mods[index];
+
+            list.Add((mod, download));
+        }
+
+        return list;
+    }
+
     private static ResolvedEntitiesLookup ResolveModFiles(
         IDb db,
         ITransaction tx,
@@ -114,12 +216,24 @@ public partial class NexusModsLibrary
     {
         var res = new ResolvedEntitiesLookup();
 
+        var modPageIds = new Dictionary<UidForMod, EntityId>();
+
         foreach (var modFile in collectionRevision.ModFiles)
         {
             var file = modFile.File;
             if (file is null) continue;
 
-            var modEntityId = file.Mod.Resolve(db, tx);
+            // NOTE(erri120): Need to re-use the entity ids we get back from the `Resolve`
+            // method. Otherwise, if a collection contains two files from the same mod page
+            // and the mod page isn't in the DB, we'll end up creating two mod pages, one for
+            // each file.
+            var uidForMod = UidForMod.FromV2Api(file.Mod.Uid);
+            if (!modPageIds.TryGetValue(uidForMod, out var modEntityId))
+            {
+                modEntityId = file.Mod.Resolve(db, tx);
+                modPageIds[uidForMod] = modEntityId;
+            }
+
             var fileEntityId = file.Resolve(db, tx, modEntityId);
 
             var id = new UidForFile(
@@ -322,12 +436,21 @@ public partial class NexusModsLibrary
     /// <summary>
     /// Parses the collection json file.
     /// </summary>
-    public async ValueTask<CollectionRoot> ParseCollectionJsonFile(
+    public ValueTask<CollectionRoot> ParseCollectionJsonFile(
         NexusModsCollectionLibraryFile.ReadOnly collectionLibraryFile,
         CancellationToken cancellationToken)
     {
         var jsonFileEntity = GetCollectionJsonFile(collectionLibraryFile);
+        return ParseCollectionJsonFile(jsonFileEntity, cancellationToken);
+    }
 
+    /// <summary>
+    /// Parses the collection json file.
+    /// </summary>
+    public async ValueTask<CollectionRoot> ParseCollectionJsonFile(
+        LibraryArchiveFileEntry.ReadOnly jsonFileEntity,
+        CancellationToken cancellationToken)
+    {
         await using var data = await _fileStore.GetFileStream(jsonFileEntity.AsLibraryFile().Hash, token: cancellationToken);
         var root = await JsonSerializer.DeserializeAsync<CollectionRoot>(data, _jsonSerializerOptions, cancellationToken: cancellationToken);
 
