@@ -1070,6 +1070,15 @@ namespace NexusMods.App.UI.Resources {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Removes the game and all mods installed by the app.
+        /// </summary>
+        public static string GameWidget__RemoveGame_ToolTip {
+            get {
+                return ResourceManager.GetString("GameWidget__RemoveGame_ToolTip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Removing game.
         /// </summary>
         public static string GameWidget__Removing_game {
@@ -1084,15 +1093,6 @@ namespace NexusMods.App.UI.Resources {
         public static string GameWidget__View {
             get {
                 return ResourceManager.GetString("GameWidget__View", resourceCulture);
-            }
-        }
-        
-        /// <summary>
-        ///   Looks up a localized string similar to Give feedback.
-        /// </summary>
-        public static string GiveFeedbackMenuItem_Header {
-            get {
-                return ResourceManager.GetString("GiveFeedbackMenuItem.Header", resourceCulture);
             }
         }
         
@@ -2037,6 +2037,42 @@ namespace NexusMods.App.UI.Resources {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Discord.
+        /// </summary>
+        public static string OpenDiscordMenuItem_Header {
+            get {
+                return ResourceManager.GetString("OpenDiscordMenuItem.Header", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Nexus Mods forums.
+        /// </summary>
+        public static string OpenForumsMenuItem_Header {
+            get {
+                return ResourceManager.GetString("OpenForumsMenuItem.Header", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to GitHub.
+        /// </summary>
+        public static string OpenGitHubMenuItem_Header {
+            get {
+                return ResourceManager.GetString("OpenGitHubMenuItem.Header", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Status page.
+        /// </summary>
+        public static string OpenStatusPageMenuItem_Header {
+            get {
+                return ResourceManager.GetString("OpenStatusPageMenuItem.Header", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Add tab.
         /// </summary>
         public static string Panel_Add_tab_ToolTip {
@@ -2096,6 +2132,15 @@ namespace NexusMods.App.UI.Resources {
         public static string SettingsView_Title {
             get {
                 return ResourceManager.GetString("SettingsView_Title", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to About.
+        /// </summary>
+        public static string ShowWelcomeMessageMenuItem_Header {
+            get {
+                return ResourceManager.GetString("ShowWelcomeMessageMenuItem.Header", resourceCulture);
             }
         }
         
@@ -2177,6 +2222,15 @@ namespace NexusMods.App.UI.Resources {
         public static string TopBar_Forward_ToolTip {
             get {
                 return ResourceManager.GetString("TopBar_Forward_ToolTip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Upgrade to Premium.
+        /// </summary>
+        public static string TopBar_GetPremiumMenuItem {
+            get {
+                return ResourceManager.GetString("TopBar_GetPremiumMenuItem", resourceCulture);
             }
         }
         
@@ -2298,7 +2352,7 @@ namespace NexusMods.App.UI.Resources {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to View App logs.
+        ///   Looks up a localized string similar to View app logs.
         /// </summary>
         public static string ViewAppLogsMenuItem_Header {
             get {

@@ -60,7 +60,7 @@ public sealed class CollectionDownloadViewModel : APageViewModel<ICollectionDown
         var mappingCache = serviceProvider.GetRequiredService<IGameDomainToGameIdMappingCache>();
         var osInterop = serviceProvider.GetRequiredService<IOSInterop>();
         var nexusModsLibrary = serviceProvider.GetRequiredService<NexusModsLibrary>();
-        var collectionDownloader = new CollectionDownloader(serviceProvider);
+        var collectionDownloader = serviceProvider.GetRequiredService<CollectionDownloader>();
         var loginManager = serviceProvider.GetRequiredService<ILoginManager>();
         var overlayController = serviceProvider.GetRequiredService<IOverlayController>();
         var jobMonitor = serviceProvider.GetRequiredService<IJobMonitor>();
@@ -149,7 +149,7 @@ public sealed class CollectionDownloadViewModel : APageViewModel<ICollectionDown
 
                 var workspaceController = GetWorkspaceController();
                 var behavior = new OpenPageBehavior.ReplaceTab(PanelId, TabId);
-                workspaceController.OpenPage(WorkspaceId, pageData, behavior);
+                workspaceController.OpenPage(WorkspaceId, pageData, behavior, checkOtherPanels: false);
 
                 await collectionDownloader.DeleteCollectionLoadoutGroup(_revision, cancellationToken: CancellationToken.None);
                 await collectionDownloader.DeleteRevision(_revision);
@@ -184,6 +184,7 @@ public sealed class CollectionDownloadViewModel : APageViewModel<ICollectionDown
                     {
                         FileId = collectionJsonFile.AsLibraryFile().LibraryFileId,
                         FilePath = collectionJsonFile.AsLibraryFile().FileName,
+                        IsReadOnly = true,
                     },
                 };
 
@@ -302,11 +303,13 @@ public sealed class CollectionDownloadViewModel : APageViewModel<ICollectionDown
                         }
                         else
                         {
+                            IsInstalled.Value = false;
                             CollectionStatusText = Language.CollectionDownloadViewModel_Ready_to_install;
                         }
                     }
                     else
                     {
+                        IsInstalled.Value = false;
                         CollectionStatusText = string.Format(Language.CollectionDownloadViewModel_Num_required_mods_downloaded, numDownloadedRequiredItems, RequiredDownloadsCount);
                     }
                 }).AddTo(disposables);
