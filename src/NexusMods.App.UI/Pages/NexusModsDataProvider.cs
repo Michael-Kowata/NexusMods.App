@@ -39,7 +39,7 @@ public class NexusModsDataProvider : ILibraryDataProvider, ILoadoutDataProvider
         return NexusModsModPageMetadata
             .ObserveAll(_connection)
             // only show mod pages for the currently selected game
-            .FilterOnObservable(modPage => libraryFilter.GameObservable.Select(game => modPage.Uid.GameId.Equals(game.GameId)))
+            .FilterImmutable(modPage => modPage.Uid.GameId.Equals(libraryFilter.Game.GameId))
             // only show mod pages that have library files
             .FilterOnObservable(modPage => _connection
                 .ObserveDatoms(NexusModsLibraryItem.ModPageMetadata, modPage)
@@ -115,8 +115,11 @@ public class NexusModsDataProvider : ILibraryDataProvider, ILoadoutDataProvider
         ));
 
         // Update available
-        var newestVersionObservable = _modUpdateService
-            .GetNewestModPageVersionObservable(modPage)
+        var newestModPageObservable = _modUpdateService.GetNewestModPageVersionObservable(modPage);
+        var currentUpdateVersionObservable = newestModPageObservable
+            .Select(static optional => !optional.HasValue ? "" : optional.Value.MappingWithNewestFile().File.Version)
+            .OnUI();
+        var newestVersionObservable = newestModPageObservable
             .Select(static optional => optional.Convert(static updatesOnPage => updatesOnPage.NewestFile().Version))
             .OnUI();
 
@@ -126,7 +129,7 @@ public class NexusModsDataProvider : ILibraryDataProvider, ILoadoutDataProvider
             componentFactory: (valueObservable, initialValue) => new LibraryComponents.NewVersionAvailable(
                 currentVersion: new StringComponent(
                     initialValue: string.Empty,
-                    valueObservable: currentVersionObservable
+                    valueObservable: currentUpdateVersionObservable
                 ),
                 newVersion: initialValue,
                 newVersionObservable: valueObservable
