@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Reactive.Linq;
 using DynamicData;
+using DynamicData.Binding;
 using DynamicData.Kernel;
 using NexusMods.Abstractions.Games;
 using NexusMods.Abstractions.Loadouts;
@@ -17,7 +18,7 @@ namespace NexusMods.Games.RedEngine.Cyberpunk2077.SortOrder;
 
 using RedModWithState = (RedModLoadoutGroup.ReadOnly RedMod, RelativePath RedModFolder, bool IsEnabled);
 
-public class RedModSortableItemProvider : ILoadoutSortableItemProvider, IDisposable
+public class RedModSortableItemProvider : ILoadoutSortableItemProvider
 {
     private readonly IConnection _connection;
 
@@ -29,6 +30,7 @@ public class RedModSortableItemProvider : ILoadoutSortableItemProvider, IDisposa
     private readonly SemaphoreSlim _semaphore = new(1, 1);
     private readonly CompositeDisposable _disposables = new();
     public ReadOnlyObservableCollection<ISortableItem> SortableItems => _readOnlyOrderList;
+    public IObservable<IChangeSet<ISortableItem, Guid>> SortableItemsChangeSet { get; }
 
 
     public LoadoutId LoadoutId { get; }
@@ -61,7 +63,7 @@ public class RedModSortableItemProvider : ILoadoutSortableItemProvider, IDisposa
         // load the previously saved order
         var order = RetrieveSortableEntries();
         _orderCache.AddOrUpdate(order);
-
+        
         // populate read only list
         _orderCache.Connect()
             .Transform(item => item as ISortableItem)
@@ -69,9 +71,11 @@ public class RedModSortableItemProvider : ILoadoutSortableItemProvider, IDisposa
             .Bind(out _readOnlyOrderList)
             .Subscribe()
             .AddTo(_disposables);
+        
+        SortableItemsChangeSet = SortableItems.ToObservableChangeSet(item => item.ItemId).RefCount();
 
-        // Observe RedMod groups
-        var redModStatesChanges = RedModLoadoutGroup.ObserveAll(_connection)
+        // Observe RedMod groups changes
+        RedModLoadoutGroup.ObserveAll(_connection)
             .Transform((_, redModId) => LoadoutItem.Load(_connection.Db, redModId))
             // Filter by the loadout
             .Filter(item => item.LoadoutId.Equals(LoadoutId))
@@ -84,20 +88,23 @@ public class RedModSortableItemProvider : ILoadoutSortableItemProvider, IDisposa
                         .Select(isEnabled => (RedMod: redMod, RedModFolder: redMod.RedModFolder(), IsEnabled: isEnabled));
                 }
             )
-            .SortBy(tuple => tuple.RedModFolder.ToString())
-            .Bind(out var redModStates)
             .ToObservable()
             .SubscribeAwait(
-                async (changes, _) => { await UpdateOrderCache(redModStates); },
+                async (changes, token) => { await UpdateOrderCache(token); },
                 awaitOperation: AwaitOperation.Sequential
             )
             .AddTo(_disposables);
     }
 
 
-    public async Task SetRelativePosition(ISortableItem sortableItem, int delta)
+    public Optional<ISortableItem> GetSortableItem(Guid itemId)
     {
-        await _semaphore.WaitAsync();
+        return SortableItems.FirstOrOptional(item => item.ItemId.Equals(itemId));
+    }
+
+    public async Task SetRelativePosition(ISortableItem sortableItem, int delta, CancellationToken token)
+    {
+        await _semaphore.WaitAsync(token);
         try
         {
             var redModSortableItem = (RedModSortableItem)sortableItem;
@@ -119,14 +126,16 @@ public class RedModSortableItemProvider : ILoadoutSortableItemProvider, IDisposa
             // Move the item in the list
             stagingList.RemoveAt(currentIndex);
             stagingList.Insert(newIndex, redModSortableItem);
-
+            
             // Update the sort index of all items
             for (var i = 0; i < stagingList.Count; i++)
             {
                 stagingList[i].SortIndex = i;
             }
-
-            await PersistSortableEntries(stagingList);
+            
+            if (token.IsCancellationRequested) return;
+            
+            await PersistSortableEntries(stagingList, token);
 
             _orderCache.Edit(innerCache =>
                 {
@@ -177,19 +186,29 @@ public class RedModSortableItemProvider : ILoadoutSortableItemProvider, IDisposa
             .ToList();
     }
 
-    private async Task UpdateOrderCache(IReadOnlyList<RedModWithState> redModsGroupsWithState)
+    private async Task UpdateOrderCache(CancellationToken token)
     {
-        await _semaphore.WaitAsync();
+        await _semaphore.WaitAsync(token);
         try
         {
-            var redModsGroups = redModsGroupsWithState.ToList();
+            var redModsGroups = RedModLoadoutGroup.All(_connection.Db)
+                .Where(g => g.AsLoadoutItemGroup().AsLoadoutItem().LoadoutId == LoadoutId)
+                .Select(g => new RedModWithState( g, g.RedModFolder(), g.IsEnabled()))
+                .ToList();
+                
             var oldOrder = _orderCache.Items.OrderBy(item => item.SortIndex);
-
+            
+            if (token.IsCancellationRequested) return;
+            
             // Update the order
             var stagingList = SynchronizeSortingToItems(redModsGroups, oldOrder.ToList(), this);
+            
+            if (token.IsCancellationRequested) return;
 
             // Update the database
-            await PersistSortableEntries(stagingList);
+            await PersistSortableEntries(stagingList, token);
+            
+            if (token.IsCancellationRequested) return;
 
             // Update the cache
             _orderCache.Edit(innerCache =>
@@ -311,13 +330,15 @@ public class RedModSortableItemProvider : ILoadoutSortableItemProvider, IDisposa
     }
 
 
-    private async Task PersistSortableEntries(List<RedModSortableItem> orderList)
+    private async Task PersistSortableEntries(List<RedModSortableItem> orderList, CancellationToken token)
     {
         var persistentSortableItems = RedModSortableEntry.All(_connection.Db)
             .Where(si => si.IsValid() && si.AsSortableEntry().ParentSortOrderId == _sortOrderId)
             .OrderBy(si => si.AsSortableEntry().SortIndex)
             .ToArray();
 
+        if (token.IsCancellationRequested) return;
+        
         using var tx = _connection.BeginTransaction();
 
         // Remove outdated persistent items
@@ -360,6 +381,8 @@ public class RedModSortableItemProvider : ILoadoutSortableItemProvider, IDisposa
                 RedModFolderName = liveItem.RedModFolderName,
             };
         }
+
+        if (token.IsCancellationRequested) return;
 
         await tx.Commit();
     }

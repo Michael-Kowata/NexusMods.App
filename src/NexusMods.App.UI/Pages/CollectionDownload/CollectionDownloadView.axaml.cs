@@ -10,6 +10,9 @@ using NexusMods.Icons;
 using NexusMods.MnemonicDB.Abstractions;
 using R3;
 using ReactiveUI;
+using Humanizer;
+using Microsoft.CodeAnalysis;
+using NexusMods.App.UI.Converters;
 
 namespace NexusMods.App.UI.Pages.CollectionDownload;
 
@@ -80,13 +83,13 @@ public partial class CollectionDownloadView : ReactiveUserControl<ICollectionDow
             this.OneWayBind(ViewModel, vm => vm.AuthorAvatar, view => view.AuthorAvatar.Source)
                 .DisposeWith(d);
             
-            this.OneWayBind(ViewModel, vm => vm.DownloadCount, view => view.NumDownloads.Text)
+            this.OneWayBind(ViewModel, vm => vm.DownloadCount, view => view.NumDownloads.Text, v => v.ToString("N0"))
                 .DisposeWith(d);
 
-            this.OneWayBind(ViewModel, vm => vm.EndorsementCount, view => view.Endorsements.Text)
+            this.OneWayBind(ViewModel, vm => vm.EndorsementCount, view => view.Endorsements.Text, v => Convert.ToInt32(v).ToMetric(null, 1))
                 .DisposeWith(d);
 
-            this.OneWayBind(ViewModel, vm => vm.TotalDownloads, view => view.TotalDownloads.Text)
+            this.OneWayBind(ViewModel, vm => vm.TotalDownloads, view => view.TotalDownloads.Text, v => Convert.ToInt32(v).ToMetric(null, 1))
                 .DisposeWith(d);
 
             this.OneWayBind(ViewModel, vm => vm.TotalSize, view => view.TotalSize.Text)
@@ -95,15 +98,15 @@ public partial class CollectionDownloadView : ReactiveUserControl<ICollectionDow
             this.OneWayBind(ViewModel, vm => vm.OverallRating, view => view.OverallRating.Text)
                 .DisposeWith(d);
 
-            this.OneWayBind(ViewModel, vm => vm.RequiredDownloadsCount, view => view.RequiredDownloadsCount.Text)
+            this.OneWayBind(ViewModel, vm => vm.RequiredDownloadsCount, view => view.RequiredDownloadsCount.Text, v => v.ToString("N0"))
                 .DisposeWith(d);
 
-            this.OneWayBind(ViewModel, vm => vm.OptionalDownloadsCount, view => view.OptionalDownloadsCount.Text)
+            this.OneWayBind(ViewModel, vm => vm.OptionalDownloadsCount, view => view.OptionalDownloadsCount.Text, v => v.ToString("N0"))
                 .DisposeWith(d);
 
             this.OneWayBind(ViewModel, vm => vm.RevisionNumber, view => view.Revision.Text, revision => $"Revision {revision}")
                 .DisposeWith(d);
-
+            
             this.WhenAnyValue(
                     view => view.ViewModel!.IsUpdateAvailable.Value,
                     view => view.ViewModel!.NewestRevisionNumber.Value)
@@ -164,16 +167,19 @@ public partial class CollectionDownloadView : ReactiveUserControl<ICollectionDow
             
             this.WhenAnyValue(
                     view => view.ViewModel!.OptionalDownloadsCount,
-                    view => view.ViewModel!.InstructionsRenderer,
-                    static (count, renderer) => count == 0 && renderer is null)
-                .Subscribe(hasSingleTab =>
+                    view => view.ViewModel!.InstructionsRenderer)
+                .Subscribe(tuple =>
                 {
+                    var (optionalDownloadsCount, renderer) = tuple;
+                    var hasSingleTab = optionalDownloadsCount == 0 && renderer is null;
+
                     if (hasSingleTab) TabControl.Classes.Add("SingleTab");
                     else TabControl.Classes.Remove("SingleTab");
-            
-                    if (hasSingleTab) TabControl.SelectedItem = RequiredTab;
-                }).DisposeWith(d);
 
+                    if (hasSingleTab) TabControl.SelectedItem = RequiredTab;
+                    OptionalTab.IsVisible = optionalDownloadsCount != 0;
+                }).DisposeWith(d);
+            
             this.WhenAnyValue(view => view.ViewModel!.OverallRating)
                 .Select(rating =>
                 {
@@ -188,18 +194,18 @@ public partial class CollectionDownloadView : ReactiveUserControl<ICollectionDow
                 .Subscribe(className =>
                     {
                         OverallRatingPanel.Classes.Add(className);
-                        OverallRating.Text = className == "NoRating" ? "--" : ViewModel!.OverallRating.Value.ToString("P2");
+                        OverallRating.Text = className == "NoRating" ? "--" : ViewModel!.OverallRating.Value.ToString("P0");
                     }
                 )
                 .DisposeWith(d);
-
+            
             this.WhenAnyValue(view => view.ViewModel!.CanDownloadAutomatically)
                 .Subscribe(canDownloadAutomatically =>
                 {
                     ButtonDownloadRequiredItems.LeftIcon = canDownloadAutomatically ? null : IconValues.Lock;
                     ButtonDownloadOptionalItems.LeftIcon = canDownloadAutomatically ? null : IconValues.Lock;
                 }).DisposeWith(d);
-
+            
             this.WhenAnyValue(
                     view => view.ViewModel!.InstructionsRenderer,
                     view => view.ViewModel!.RequiredModsInstructions,
@@ -207,20 +213,23 @@ public partial class CollectionDownloadView : ReactiveUserControl<ICollectionDow
                 .Subscribe(tuple =>
                 {
                     var (instructionsRenderer, requiredModsInstructions, optionalModsInstructions) = tuple;
-
+            
                     var hasInstructions = instructionsRenderer is not null || requiredModsInstructions.Length > 0 || optionalModsInstructions.Length > 0;
                     InstructionsTab.IsVisible = hasInstructions;
-
+            
                     CollectionInstructionsExpander.IsVisible = instructionsRenderer is not null;
                     CollectionInstructionsRendererHost.ViewModel = instructionsRenderer;
-
+            
                     RequiredModsInstructionsExpander.IsVisible = requiredModsInstructions.Length > 0;
                     RequiredModsInstructions.ItemsSource = requiredModsInstructions;
-
+            
                     OptionalModsInstructionsExpander.IsVisible = optionalModsInstructions.Length > 0;
                     OptionalModsInstructions.ItemsSource = optionalModsInstructions;
                 }).DisposeWith(d);
         });
     }
+
+    
+    
 }
 

@@ -7,12 +7,14 @@ using Microsoft.Extensions.DependencyInjection;
 using NexusMods.Abstractions.Library.Models;
 using NexusMods.Abstractions.Loadouts;
 using NexusMods.Abstractions.NexusModsLibrary;
+using NexusMods.Abstractions.NexusWebApi.Types.V2;
 using NexusMods.Abstractions.Resources;
 using NexusMods.App.UI.Controls;
 using NexusMods.App.UI.Extensions;
 using NexusMods.App.UI.Pages.LibraryPage;
 using NexusMods.MnemonicDB.Abstractions;
 using NexusMods.MnemonicDB.Abstractions.DatomIterators;
+using NexusMods.MnemonicDB.Abstractions.IndexSegments;
 using NexusMods.MnemonicDB.Abstractions.Query;
 using NexusMods.Networking.NexusWebApi;
 using NuGet.Versioning;
@@ -34,7 +36,29 @@ public class NexusModsDataProvider : ILibraryDataProvider, ILoadoutDataProvider
         _thumbnailLoader = new Lazy<IResourceLoader<EntityId, Bitmap>>(() => ImagePipelines.GetModPageThumbnailPipeline(serviceProvider));
     }
 
-    public IObservable<IChangeSet<CompositeItemModel<EntityId>, EntityId>> ObserveLibraryItems(LibraryFilter libraryFilter)
+    public LibraryFile.ReadOnly[] GetAllFiles(GameId gameId, IDb? db = null)
+    {
+        db ??= _connection.Db;
+
+        var libraryItems = NexusModsLibraryItem
+            .All(db)
+            .Where(libraryItem => libraryItem.AsLibraryItem().TryGetAsLibraryFile(out _))
+            .GroupBy(libraryItem => libraryItem.FileMetadataId)
+            .ToDictionary(group => group.Key, group => group.ToArray());
+
+        var files = NexusModsFileMetadata
+            .All(db)
+            .Where(modPage => modPage.Uid.GameId == gameId)
+            .Select(fileMetadata => libraryItems.GetValueOrDefault(fileMetadata))
+            .Where(static arr => arr is not null)
+            .SelectMany(static x => x!)
+            .Select(libraryItem => new LibraryFile.ReadOnly(db, libraryItem))
+            .ToArray();
+
+        return files;
+    }
+
+    private IObservable<IChangeSet<NexusModsModPageMetadata.ReadOnly, EntityId>> FilterLibraryItems(LibraryFilter libraryFilter)
     {
         return NexusModsModPageMetadata
             .ObserveAll(_connection)
@@ -44,8 +68,17 @@ public class NexusModsDataProvider : ILibraryDataProvider, ILoadoutDataProvider
             .FilterOnObservable(modPage => _connection
                 .ObserveDatoms(NexusModsLibraryItem.ModPageMetadata, modPage)
                 .IsNotEmpty()
-            )
-            .Transform(modPage => ToLibraryItemModel(modPage, libraryFilter));
+            );
+    }
+
+    public IObservable<IChangeSet<CompositeItemModel<EntityId>, EntityId>> ObserveLibraryItems(LibraryFilter libraryFilter)
+    {
+        return FilterLibraryItems(libraryFilter).Transform(modPage => ToLibraryItemModel(modPage, libraryFilter));
+    }
+
+    public IObservable<int> CountLibraryItems(LibraryFilter libraryFilter)
+    {
+        return FilterLibraryItems(libraryFilter).QueryWhenChanged(query => query.Count).Prepend(0);
     }
 
     private CompositeItemModel<EntityId> ToLibraryItemModel(NexusModsModPageMetadata.ReadOnly modPage, LibraryFilter libraryFilter)
@@ -262,7 +295,11 @@ public class NexusModsDataProvider : ILibraryDataProvider, ILoadoutDataProvider
 
             LoadoutDataProviderHelper.AddDateComponent(parentItemModel, modPage.GetCreatedAt(), linkedItemsObservable);
             LoadoutDataProviderHelper.AddCollections(parentItemModel, linkedItemsObservable);
-            LoadoutDataProviderHelper.AddIsEnabled(_connection, parentItemModel, linkedItemsObservable);
+            LoadoutDataProviderHelper.AddParentCollectionsDisabled(_connection, parentItemModel, linkedItemsObservable);
+            LoadoutDataProviderHelper.AddMixLockedAndParentDisabled(_connection, parentItemModel, linkedItemsObservable);
+            LoadoutDataProviderHelper.AddLockedEnabledStates(parentItemModel, linkedItemsObservable);
+            LoadoutDataProviderHelper.AddEnabledStateToggle(_connection, parentItemModel, linkedItemsObservable);
+            LoadoutDataProviderHelper.AddLoadoutItemIds(parentItemModel, linkedItemsObservable);
 
             return parentItemModel;
         });

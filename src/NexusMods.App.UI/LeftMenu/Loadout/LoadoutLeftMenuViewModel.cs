@@ -1,6 +1,5 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using DynamicData;
@@ -11,13 +10,14 @@ using NexusMods.Abstractions.Collections;
 using NexusMods.Abstractions.Diagnostics;
 using NexusMods.Abstractions.Jobs;
 using NexusMods.Abstractions.Loadouts;
+using NexusMods.Abstractions.NexusModsLibrary.Models;
 using NexusMods.Abstractions.Settings;
 using NexusMods.Abstractions.UI;
 using NexusMods.App.UI.Controls;
-using NexusMods.App.UI.Controls.Navigation;
 using NexusMods.App.UI.LeftMenu.Items;
 using NexusMods.App.UI.Overlays;
 using NexusMods.App.UI.Pages;
+using NexusMods.App.UI.Pages.CollectionDownload;
 using NexusMods.App.UI.Pages.Diagnostics;
 using NexusMods.App.UI.Pages.ItemContentsFileTree;
 using NexusMods.App.UI.Pages.LibraryPage;
@@ -67,7 +67,10 @@ public class LoadoutLeftMenuViewModel : AViewModel<ILoadoutLeftMenuViewModel>, I
 
         var collectionItemComparer = new LeftMenuCollectionItemComparer();
         var collectionDownloader = serviceProvider.GetRequiredService<CollectionDownloader>();
-        
+
+        var loadout = Abstractions.Loadouts.Loadout.Load(conn.Db, loadoutContext.LoadoutId.Value);
+        var game = loadout.InstallationInstance.Game;
+
         // Library
         LeftMenuItemLibrary = new LeftMenuItemWithCountBadgeViewModel(
             workspaceController,
@@ -112,6 +115,35 @@ public class LoadoutLeftMenuViewModel : AViewModel<ILoadoutLeftMenuViewModel>, I
             ToolTip = new StringComponent(Language.LoadoutView_Title_Installed_Mods_ToolTip),
         };
 
+        var collectionRevisionsObservable = CollectionRevisionMetadata
+            .ObserveAll(conn)
+            .FilterImmutable(revision => revision.Collection.GameId == game.GameId)
+            .FilterOnObservable(revision =>
+            {
+                var groupObservable = collectionDownloader.GetCollectionGroupObservable(revision, loadout);
+                var isNotInstalledObservable = collectionDownloader.IsCollectionInstalledObservable(revision, groupObservable).Select(static isInstalled => !isInstalled);
+                return isNotInstalledObservable;
+            })
+            .Transform(ILeftMenuItemViewModel (revision) =>
+            {
+                var pageData = new PageData
+                {
+                    FactoryId = CollectionDownloadPageFactory.StaticId,
+                    Context = new CollectionDownloadPageContext
+                    {
+                        TargetLoadout = loadout,
+                        CollectionRevisionMetadataId = revision,
+                    },
+                };
+
+                return new LeftMenuItemWithRightIconViewModel(workspaceController, workspaceId, pageData)
+                {
+                    Text = new StringComponent(revision.Collection.Name),
+                    Icon = IconValues.CollectionsOutline,
+                    RightIcon = IconValues.Downloading,
+                };
+            });
+
         // Collections
         var collectionItemsObservable = CollectionGroup.ObserveAll(conn)
             .FilterImmutable(f => f.AsLoadoutItemGroup().AsLoadoutItem().LoadoutId == loadoutContext.LoadoutId)
@@ -134,7 +166,7 @@ public class LoadoutLeftMenuViewModel : AViewModel<ILoadoutLeftMenuViewModel>, I
                         FactoryId = CollectionLoadoutPageFactory.StaticId,
                         Context = new CollectionLoadoutPageContext
                         {
-                            LoadoutId = collection.AsLoadoutItemGroup().AsLoadoutItem().LoadoutId,
+                            LoadoutId = loadout,
                             GroupId = collection,
                         },
                     }
@@ -143,7 +175,7 @@ public class LoadoutLeftMenuViewModel : AViewModel<ILoadoutLeftMenuViewModel>, I
                         FactoryId = LoadoutPageFactory.StaticId,
                         Context = new LoadoutPageContext
                         {
-                            LoadoutId = collection.AsLoadoutItemGroup().AsLoadoutItem().LoadoutId,
+                            LoadoutId = loadout,
                             GroupScope = collection.AsLoadoutItemGroup().LoadoutItemGroupId,
                         },
                     };
@@ -158,6 +190,7 @@ public class LoadoutLeftMenuViewModel : AViewModel<ILoadoutLeftMenuViewModel>, I
                 {
                     Text = new StringComponent(collection.AsLoadoutItemGroup().AsLoadoutItem().Name),
                     Icon = IconValues.CollectionsOutline,
+                    IsCollectionReadOnly = collection.IsReadOnly,
                 };
             })
             .Transform(ILeftMenuItemViewModel (item) => item);
@@ -233,30 +266,38 @@ public class LoadoutLeftMenuViewModel : AViewModel<ILoadoutLeftMenuViewModel>, I
                     .OnUI()
                     .SubscribeWithErrorLogging(item => LeftMenuItemExternalChanges = item)
                     .DisposeWith(disposable);
-                
-                
+
                 collectionItemsObservable
+                    .MergeChangeSets(collectionRevisionsObservable)
                     .OnUI()
                     .SortAndBind(out _leftMenuCollectionItems, collectionItemComparer)
                     .Subscribe()
                     .DisposeWith(disposable);
 
-                LibraryUserFilters.ObserveFilteredLibraryItems(connection: conn)
-                    .RemoveKey()
-                    .WhereReasonsAre(ListChangeReason.Add,
-                        ListChangeReason.AddRange,
-                        ListChangeReason.Remove,
-                        ListChangeReason.RemoveRange
-                    )
+                var previousCount = 0;
+                NewDownloadModelCount = 0;
+
+                LibraryDataProviderHelper
+                    .CountAllLibraryItems(serviceProvider, loadoutContext.LoadoutId)
                     .OnUI()
-                    .SubscribeWithErrorLogging(changeSet => NewDownloadModelCount = Math.Max(0, NewDownloadModelCount + (changeSet.Adds - changeSet.Removes)))
+                    .SubscribeWithErrorLogging(currentCount =>
+                    {
+                        if (LeftMenuItemLibrary.IsActive || LeftMenuItemLibrary.IsSelected)
+                        {
+                            NewDownloadModelCount = 0;
+                        }
+                        else
+                        {
+                            var diff = Math.Max(0, currentCount - previousCount);
+                            NewDownloadModelCount += diff;
+                        }
+
+                        previousCount = currentCount;
+                    })
                     .DisposeWith(disposable);
 
-                // NOTE(erri120): No new downloads when the Left Menu gets loaded. Must be set here because the observable stream
-                // above will count all existing downloads, which we want to ignore.
-                NewDownloadModelCount = 0;
-                
-                LeftMenuItemLibrary.WhenAnyValue(item=> item.IsActive)
+                LeftMenuItemLibrary
+                    .WhenAnyValue(item => item.IsActive, item => item.IsSelected, (isActive, isSelected) => isActive || isSelected)
                     .Subscribe(isActive => NewDownloadModelCount = isActive ? 0 : NewDownloadModelCount)
                     .DisposeWith(disposable);
             }
@@ -268,20 +309,24 @@ file class LeftMenuCollectionItemComparer : IComparer<ILeftMenuItemViewModel>
 {
     public int Compare(ILeftMenuItemViewModel? x, ILeftMenuItemViewModel? y)
     {
-        if (x is null && y is null)
-            return 0;
-        if (x is null)
-            return -1;
-        if (y is null)
-            return 1;
+        if (x is null && y is null) return 0;
+        if (x is null) return -1;
+        if (y is null) return 1;
 
         return (x, y) switch
         {
-            (CollectionLeftMenuItemViewModel a, CollectionLeftMenuItemViewModel b) => 
-                a.CollectionGroupId.Value.CompareTo(b.CollectionGroupId.Value),
-            ({ } a, { } b) => 
-                string.Compare(a.Text.Value.Value, b.Text.Value.Value, StringComparison.Ordinal),
+            (CollectionLeftMenuItemViewModel a, CollectionLeftMenuItemViewModel b) => Compare(a, b),
+            (CollectionLeftMenuItemViewModel, _) => -1,
+            (_, CollectionLeftMenuItemViewModel) => 1,
+            ({ } a, { } b) => string.Compare(a.Text.Value.Value, b.Text.Value.Value, StringComparison.Ordinal),
             _ => 0,
         };
+    }
+
+    private static int Compare(CollectionLeftMenuItemViewModel a, CollectionLeftMenuItemViewModel b)
+    {
+        var res = a.IsCollectionReadOnly.CompareTo(b.IsCollectionReadOnly);
+        if (res != 0) return res;
+        return a.CollectionGroupId.Value.CompareTo(b.CollectionGroupId.Value);
     }
 }

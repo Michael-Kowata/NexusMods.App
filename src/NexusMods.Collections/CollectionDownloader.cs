@@ -14,6 +14,8 @@ using NexusMods.Abstractions.NexusModsLibrary;
 using NexusMods.Abstractions.NexusModsLibrary.Models;
 using NexusMods.Abstractions.NexusWebApi;
 using NexusMods.Abstractions.NexusWebApi.Types;
+using NexusMods.Abstractions.NexusWebApi.Types.V2;
+using NexusMods.Abstractions.Telemetry;
 using NexusMods.CrossPlatform.Process;
 using NexusMods.Extensions.BCL;
 using NexusMods.MnemonicDB.Abstractions;
@@ -45,6 +47,7 @@ public class CollectionDownloader
     private readonly IOSInterop _osInterop;
     private readonly HttpClient _httpClient;
     private readonly IJobMonitor _jobMonitor;
+    private readonly IGameDomainToGameIdMappingCache _mappingCache;
 
     /// <summary>
     /// Constructor.
@@ -61,6 +64,7 @@ public class CollectionDownloader
         _osInterop = serviceProvider.GetRequiredService<IOSInterop>();
         _httpClient = serviceProvider.GetRequiredService<HttpClient>();
         _jobMonitor = serviceProvider.GetRequiredService<IJobMonitor>();
+        _mappingCache = serviceProvider.GetRequiredService<IGameDomainToGameIdMappingCache>();
     }
 
     /// <summary>
@@ -186,7 +190,8 @@ public class CollectionDownloader
         }
         else
         {
-            await _osInterop.OpenUrl(download.FileMetadata.GetUri(), logOutput: false, fireAndForget: true, cancellationToken: cancellationToken);
+            var domain = await _mappingCache.TryGetDomainAsync(download.FileUid.GameId, cancellationToken);
+            await _osInterop.OpenUrl(NexusModsUrlBuilder.GetFileDownloadUri(domain.Value, download.ModUid.ModId, download.FileUid.FileId, useNxmLink: true, campaign: NexusModsUrlBuilder.CampaignCollections), logOutput: false, fireAndForget: true, cancellationToken: cancellationToken);
         }
     }
 
@@ -254,6 +259,7 @@ public class CollectionDownloader
         var job = new DownloadCollectionJob
         {
             Downloader = this,
+            Logger = _serviceProvider.GetRequiredService<ILogger<DownloadCollectionJob>>(),
             RevisionMetadata = revisionMetadata,
             Db = db,
             ItemType = itemType,
@@ -278,6 +284,30 @@ public class CollectionDownloader
 
         if (observables.Length == 0) return groupObservable.Select(static optional => optional.HasValue);
         return observables.CombineLatest(static list => list.All(static installed => installed));
+    }
+
+    /// <summary>
+    /// Returns all missing downloads and Uris.
+    /// </summary>
+    public IReadOnlyList<(CollectionDownload.ReadOnly Download, Uri Uri)> GetMissingDownloadLinks(CollectionRevisionMetadata.ReadOnly revision, IDb db, ItemType itemType = ItemType.Required)
+    {
+        var results = new List<(CollectionDownload.ReadOnly Download, Uri Uri)>();
+        var downloads = GetItems(revision, itemType).Where(download => GetStatus(download, db).IsNotDownloaded());
+
+        foreach (var download in downloads)
+        {
+            if (download.TryGetAsCollectionDownloadNexusMods(out var nexusModsDownload))
+            {
+                var domain = _mappingCache.TryGetDomain(nexusModsDownload.FileUid.GameId, CancellationToken.None).Value;
+                var uri = NexusModsUrlBuilder.GetFileDownloadUri(domain, nexusModsDownload.ModUid.ModId, nexusModsDownload.FileUid.FileId, useNxmLink: false, source: null);
+                results.Add((download, uri));
+            } else if (download.TryGetAsCollectionDownloadExternal(out var externalDownload))
+            {
+                results.Add((download, externalDownload.Uri));
+            }
+        }
+
+        return results;
     }
 
     private static CollectionDownloadStatus GetStatus(CollectionDownloadBundled.ReadOnly download, Optional<CollectionGroup.ReadOnly> collectionGroup, IDb db)
@@ -644,6 +674,14 @@ public class CollectionDownloader
         tx.Delete(collectionMetadataId, recursive: false);
 
         await tx.Commit();
+    }
+
+    /// <summary>
+    /// Returns all collections for the given game.
+    /// </summary>
+    public static CollectionMetadata.ReadOnly[] GetCollections(IDb db, GameId gameId)
+    {
+        return CollectionMetadata.FindByGameId(db, gameId).ToArray();
     }
 }
 

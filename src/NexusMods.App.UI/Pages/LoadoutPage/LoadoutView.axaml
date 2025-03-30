@@ -39,7 +39,7 @@
                                                Value="{x:Static icons:IconValues.Info}"
                                                Foreground="{StaticResource NeutralTranslucentStrongBrush}" />
                             <TextBlock Text="Collection disabled"
-                                       Theme="{StaticResource BodyMDBoldTheme}"
+                                       Theme="{StaticResource BodyMDSemiTheme}"
                                        Foreground="{StaticResource NeutralTranslucentStrongBrush}" />
                             <TextBlock Text="- Mods will not be loaded"
                                        Theme="{StaticResource BodyMDNormalTheme}"
@@ -71,7 +71,7 @@
                                              Text="{x:Static resources:Language.LoadoutGridView__Remove}"
                                              Type="Tertiary"
                                              Size="Small"
-                                             Fill="Weak"
+                                             Fill="WeakAlt"
                                              ShowIcon="Left"
                                              LeftIcon="{x:Static icons:IconValues.PlaylistRemove}"
                                              ToolTip.Tip="{x:Static resources:Language.LoadoutGridView__Remove_ToolTip}" />

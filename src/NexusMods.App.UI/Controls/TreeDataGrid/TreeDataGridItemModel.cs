@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Reactive.Linq;
 using Avalonia.Controls.Models.TreeDataGrid;
 using DynamicData;
 using JetBrains.Annotations;
@@ -72,6 +73,9 @@ public class TreeDataGridItemModel<TModel, TKey> : TreeDataGridItemModel, ITreeD
     {
         get
         {
+            // NOTE(erri120): When this item model gets disposed, all children get disposed, and then
+            // we clear the children observable list which can trigger the TreeDataGrid to access this.
+            if (_isDisposed) return [];
             _childrenCollectionInitialization.OnNext(true);
             return _childrenView;
         }
@@ -138,8 +142,9 @@ public class TreeDataGridItemModel<TModel, TKey> : TreeDataGridItemModel, ITreeD
                         {
                             model._childrenObservableSerialDisposable.Disposable = model.ChildrenObservable
                                 .OnUI()
+                                .Do(changeSet => model._children.ApplyChanges(changeSet))
                                 .DisposeMany()
-                                .SubscribeWithErrorLogging(changeSet => model._children.ApplyChanges(changeSet));
+                                .SubscribeWithErrorLogging();
                         }
                     }, onCompleted: static (_, model) => CleanupChildren(model._children));
             }
@@ -161,12 +166,14 @@ public class TreeDataGridItemModel<TModel, TKey> : TreeDataGridItemModel, ITreeD
     {
         if (!_isDisposed)
         {
+            _isDisposed = true;
+            
             if (disposing)
             {
                 Disposable.Dispose(
-                    _childrenCollectionInitialization,
                     _modelActivationDisposable,
                     _childrenObservableSerialDisposable,
+                    _childrenCollectionInitialization,
                     _childrenCollectionInitializationSerialDisposable,
                     _hasChildren,
                     IsSelected
@@ -174,7 +181,6 @@ public class TreeDataGridItemModel<TModel, TKey> : TreeDataGridItemModel, ITreeD
             }
 
             _children = null!;
-            _isDisposed = true;
         }
 
         base.Dispose(disposing);
