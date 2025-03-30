@@ -31,7 +31,10 @@ public static class SharedColumns
         {
             var aValue = a.GetOptional<DateComponent>(ComponentKey);
             var bValue = b.GetOptional<DateComponent>(ComponentKey);
-            return aValue.Compare(bValue);
+            var aName = aValue.HasValue ? aValue.Value.Value.ToString() : string.Empty;
+            var bName = bValue.HasValue ? bValue.Value.Value.ToString() : string.Empty;
+
+            return string.Compare(aName, bName, StringComparison.OrdinalIgnoreCase);
         }
 
         public const string ColumnTemplateResourceKey = Prefix + "InstalledDate";
